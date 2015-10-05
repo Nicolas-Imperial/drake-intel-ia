@@ -1,0 +1,45 @@
+# Copyright 2015 Nicolas Melot
+#
+# This file is part of Drake-SCC.
+#
+# Drake-SCC is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Drake-SCC is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Drake-SCC. If not, see <http://www.gnu.org/licenses/>.
+#
+
+
+package = drake-ia32-64
+version = 1
+minor = 0
+release = 0
+
+prefix = $(HOME)/.local
+exec_prefix = $(prefix)
+bindir = $(exec_prefix)/bin
+libdir = $(exec_prefix)/lib
+includedir = $(prefix)/include
+
+CONFIG = RELEASE
+
+subdirs = src include
+
+doc:
+	mkdir -p doc
+	./make-doc
+
+.PHONY: doc
+
+## Targets to run before any other target runs
+## Can be a custom target
+## To target by default
+FIRST=
+attach = COPYING.txt

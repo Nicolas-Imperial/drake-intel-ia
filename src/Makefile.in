@@ -1,0 +1,208 @@
+# Copyright 2015 Nicolas Melot
+#
+# This file is part of Drake-SCC.
+#
+# Drake-SCC is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Drake-SCC is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Drake-SCC. If not, see <http://www.gnu.org/licenses/>.
+#
+
+
+## It's OK to define global libs and ldflags here as they are defined as private in the libsries pkg-config file
+## Restrain yourself to define dependency packages here as they are generated in the public field of pkg-config
+
+## Application settings
+## Store memory size in KB (L2 cache on SCC)
+STORE_SIZE = 65536
+
+## Package configuration
+CONFIG = release
+
+## C global parameters
+CFLAGS_BASE = 
+CFLAGS_PRIVATE = -isystem ../include 
+CFLAGS_CONFIG_RELEASE = -O3 -DNDEBUG
+CFLAGS_CONFIG_DEBUG = -g -O0 -DDEBUG=1
+CC_LDFLAGS_PRIVATE = -L.
+CC_LDFLAGS = -pthread
+CC_DEPS =
+CC_PKG = 
+CC_LIBS = 
+CC_TEST_PKG = $(CC_PKG)
+CC_TEST_LIBS = $(CC_LIBS) -lunitc -lrt 
+CC_TEST_DEPS = $(CC_DEPS) libunitc+.a
+CC_TEST_LDFLAGS = -L.
+
+## C++ global parameters
+CXXFLAGS_BASE = 
+CXXFLAGS_PRIVATE = -isystem ../include
+CXXFLAGS_CONFIG_release = -O3 -DNDEBUG
+CXXFLAGS_CONFIG_release = -g -O0 -DDEBUG=1
+CXX_LDFLAGS_PRIVATE = -L.
+CXX_LDFLAGS = 
+CXX_DEPS = 
+CXX_PKG = 
+CXX_LIBS = -lrt
+CXX_TEST_PKG = $(CXX_PKG)
+CXX_TEST_LIBS = $(CXX_LIBS) -lunitc++ 
+CXX_TEST_DEPS = $(CXX_DEPS) libunitc++.a
+CXX_TEST_LDFLAGS = -L.
+
+## List of (pkg-config) packages this project depends on
+## This affects CFLAGS, CXXFLAGS and LDFLAGS
+# CXX_PKG = libfoo++
+# CXX_PKG_libfoo++_version = >= 2.34.3
+
+## List of (pg-config) packages this project depends on
+## This affects CFLAGS, CXXFLAGS and LDFLAGS for tests
+LIBS_TEST = 
+PKG_TEST = 
+
+
+## Cross-package flags for individual c/c++ source files
+#CFLAGS_foo.c = -DFOO_CROSS=foo_cross
+#CXXFLAGS_bar.cpp = -DBAR_CROSS=bar_cross
+
+## C++-compiled programs and their sources
+bincxx_package = 
+
+## C-compiled programs and their sources
+bincc_package = 
+
+bincc__src = 
+bincxx__src = 
+bincc__export = $(bincc__src) $(bincxx__src)
+bin__deps = 
+bin__pkg = 
+bin__libs = 
+bin__ldflags =
+bin__cflags =
+bin__cflags_private = 
+bin__cxxflags =
+bin__cxxflags_private = 
+bin__embed = 
+
+## Example
+## List of packages
+# bincc_package = foo bar
+
+## Source files for C package foo
+# bin_foo_src = foo.c
+## cflags for source file foo.c when used to build package foo
+# bin_foo_cflags_foo.c = -DFOO_PACKAGE=foo_package
+## Package foo is rebuilt upon modifications of files in this list
+# bin_foo_deps = $(FOO_DEPS)/foodeps.a
+## Dependencies of package foo to other external packages resolvable by pkg-config
+# bin_foo_pkg = foolib
+## Minimal version of external dependency foolib
+# bin_foo_pkg_foolib_version = >= 3.15.2
+## Manual arbitrary addictional libs required to build package foo
+# bin_foo_libs = -lm -lmanual_lib_foo
+## Linkkj options to build package foo
+# bin_foo_ldflags = -L$(MANUAL_LIB_FOO_SRC)/src
+## cflag options to build objects of package foo
+# bin_foo_cflags = -isystem $(INCLUDE_DIR)
+## cflag options to build objects of package foo, that does not appear in the generated pkg-config file
+# bin_foo_cflags_private = 
+## cflag options to build objects of package foo
+# bin_foo_cxxflags = -isystem $(INCLUDE_DIR)
+## cflag options to build objects of package foo, that does not appear in the generated pkg-config file
+# bin_foo_cxxflags_private = 
+## Embed these files into the final excutable
+# bin_foo_embed = foo-res.xml
+## Files to exports when building a source package for foo: foo source files and non-source foo-res.xml to be integrated in the binary package
+# bincc_foo_export = $(bincc_foo_src) foo-res.xml
+
+## Source files for C package bar
+## The package bar is minimal: one source file, no library
+# bincc_bar_src = bar.c
+# bincc_bar_export = $(bincc_bar_src)
+
+## Static C library packages and their sources
+lib_package = drake-ia32-64
+
+libcc__src = 
+libcxx__src = 
+lib__export = $(libcc__src) $(libcxx_src)
+## Flags integrated as libs.private in pkg-config
+lib__libs = 
+lib__ldflags = 
+lib__pkg = 
+## Flags integrated as non-private pkg-config flags
+## libs
+lib__pkg_libs = 
+## cflags
+lib__pkg_cflags = 
+lib__pkg_cxxflags = 
+lib__pkg_description = General research utility library used in PELAB
+lib__pkg_url = http://www.ida.liu.se/~nicme26
+## Rebuild the library upon changes in these files
+lib__deps =
+## Embed these files into the final archive
+lib__embed = 
+
+libcc_drake-ia32-64_src = intel-ia32-64.c
+libcxx_drake-ia32-64_src = 
+lib_drake-ia32-64_export = $(libcc_drake-ia32-64_src) $(libcxx_drake-ia32-64_src)
+lib_drake-ia32-64_libs = -lrt
+lib_drake-ia32-64_ldflags = -pthread
+lib_drake-ia32-64_cxxflags = 
+lib_drake-ia32-64_pkg = drake pelib
+lib_drake-ia32-64_pkg_requires = drake pelib
+lib_drake-ia32-64_pkg_libs = -pthread
+lib_drake-ia32-64_export = $(libcc_drake-ia32-64_src) $(libcxx_drake-ia32-64_src)
+
+sharedcc_package = drake-ia32-64
+
+sharedcc_drake-ia32-64_src = intel-ia32-64.c
+sharedcxx_drake-ia32-64_src = 
+shared_drake-ia32-64_export = $(sharedcc_drake-ia32-64_src) $(sharedcxx_drake-ia32-64_src)
+shared_drake-ia32-64_libs = -lrt 
+shared_drake-ia32-64_ldflags = -pthread
+shared_drake-ia32-64_cflags = -fPIC
+shared_drake-ia32-64_pkg = drake pelib
+shared_drake-ia32-64_pkg_requires = drake pelib
+shared_drake-ia32-64_pkg_libs = -pthread
+shared_drake-ia32-64_export = $(sharedcc_drake-ia32-64_src) $(sharedcxx_drake-ia32-64_src)
+
+## C test packages and their sources
+testcc_package = 
+## C++ test packages and their sources
+testcxx_package = 
+
+testcc__src =  
+testcxx__src =  
+test__export = $(testcc__src) $(testcxx__src)
+test__deps = 
+test__pkg = 
+test__libs = 
+test__ldflags = 
+testcxx__cflags = 
+testcxx__cflags_private = 
+
+## Where to continue compiling
+subdirs = 
+
+## Additional settings
+clean = *.o *.txt *.fig *.bin *.e *.d *.obj
+
+extra = drake_eval_scc
+post-install:
+	install -m 755 drake_eval_scc $(DESTDIR)$(final_bindir)
+
+## Targets to run before any other target runs
+## Can be a custom target
+## To target by default
+#FIRST=first
+
+first:
+	@/bin/false

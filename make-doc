@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -o xtrace
+if [ "$package" == "" ]
+then
+	echo '['ERROR']' '$'package is undefined or null. Run make doc instead of calling this script directly
+	exit 1
+fi
+
+echo '<!--#set var='\"$package\" value=\"$package-$version.$minor.$release\"'-->' | tee doc/$package-data.shtml

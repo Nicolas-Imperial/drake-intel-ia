@@ -1,0 +1,22 @@
+#!/bin/bash
+
+## Show what commands are being run
+set -o xtrace
+
+username=nicme26
+host=remote.ida.liu.se
+dir=/info/www/labs/pelab/drake
+target=$username@$host:$dir
+
+echo Copying files to server. Append $HOME/.ssh/id_rsa.pub to $username@$host:'$'HOME/.ssh/authorized_keys to avoid password prompts. Use ssh-keygen to generate $HOME/.ssh/id_rsa.pub if it doesn\'t exist.
+
+## Generate an archive
+make dist
+scp `ls *.tar.gz|sort -Vr|head -1` $target/download/
+
+## Generate documentation and copy it in output directory
+make doc
+echo '<!--#set var='\"absolute\" value=\"/labs/pelab/drake-ia32-64/\"'-->' | tee -a doc/drake-ia32-64-data.shtml
+echo '<!--#set var='\"relative\" value=\"../\"'-->' | tee -a doc/drake-ia32-64-data.shtml
+scp -r doc/* $target
+
