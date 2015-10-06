@@ -195,9 +195,8 @@ subdirs =
 ## Additional settings
 clean = *.o *.txt *.fig *.bin *.e *.d *.obj
 
-extra = drake_eval_scc
+extra = 
 post-install:
-	install -m 755 drake_eval_scc $(DESTDIR)$(final_bindir)
 
 ## Targets to run before any other target runs
 ## Can be a custom target
