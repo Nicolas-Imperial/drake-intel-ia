@@ -40,8 +40,8 @@
 #if 1
 #define debug(var) printf("[%s:%s:%d:CORE %zu] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_addr(var) printf("[%s:%s:%d:CORE %zu] %s = \"%p\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_int(var) printf("[%s:%s:%d: CORE %zu] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_size_t(var) printf("[%s:%s:%d: CORE %zu] %s = \"%zu\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_int(var) printf("[%s:%s:%d:CORE %zu] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_size_t(var) printf("[%s:%s:%d:CORE %zu] %s = \"%zu\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #else
 #define debug(var)
 #define debug_addr(var)
@@ -158,7 +158,7 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 	// zero. This acts as a marker of where free space of predecessor ends
 	b1 = spacep->tail;
 	// If we request aligned memory, then it's ok if the tail free memory can handle the size requested. Otherwise, we need to check if the tail can handle the size requested even after skipping as many bytes as necessary to get some aligned address.
-	if ((b1->free_size >= size && !aligned) || (b1->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->space % DRAKE_IA_LINE_SIZE) >= size && aligned)) {
+	if ((b1->free_size >= size && !aligned) || (((((size_t)b1->space % DRAKE_IA_LINE_SIZE) == 0) || (b1->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->space % DRAKE_IA_LINE_SIZE) >= size)) && aligned)) {
 		// need to insert new block; new order is: b1->b2 (= new tail)
 		b2 = (mem_block_t*) malloc(sizeof(mem_block_t));
 		b2->next = b1->next;
@@ -179,7 +179,7 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 			b2->next = b1->next;
 			b1->next = b2;
 			b2->space = b1->space + DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
-			b1->free_size = b1->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
+			b1->free_size = DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
 			b2->free_size = 0;
 			return b2->space;
 		}
@@ -188,7 +188,8 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 	// tail didn't have enough space; loop over whole list from beginning
 	// As for above, stop at the first free space big enough to handle the request if no aligned memory is requested
 	// Otherwise, check each space after memory alignment
-	while (((b1->next->free_size < size) && !aligned) || ((b1->next->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->next->space % DRAKE_IA_LINE_SIZE)< size) && aligned))
+	//while (((b1->next->free_size < size) && !aligned) || (((((size_t)b1->next->space % DRAKE_IA_LINE_SIZE) != 0) || (b1->next->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->next->space % DRAKE_IA_LINE_SIZE) < size)) && aligned))
+	while   (((b1->next->free_size < size) && !aligned) || (aligned && (((b1->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->space % DRAKE_IA_LINE_SIZE) < size) && (((size_t)b1->space % DRAKE_IA_LINE_SIZE) != 0)) || ((((size_t)b1->space % DRAKE_IA_LINE_SIZE) == 0) && (b1->next->free_size < size)))))
 	{
 		if (b1->next == spacep->tail)
 		{
@@ -303,7 +304,7 @@ drake_ia_thread(void* args)
 	drake_thread_init_t *init = (drake_thread_init_t*)args;
 	core_id = init->id;
 	drake_platform_t handler = init->handler;
-	shared_buffer[core_id] = malloc(DRAKE_IA_SHARED_SIZE);
+	posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_SHARED_SIZE);
 
 	// Wait for all cores to have their shared memory buffer allocated
 	pthread_barrier_wait(&handler->work_notify);
@@ -325,7 +326,6 @@ drake_ia_thread(void* args)
 	{
 		ia_malloc_init(&shared[core_id][i], shared_buffer[i], DRAKE_IA_SHARED_SIZE);
 	}
-
 
 	// Wait for something to do
 	int done = 0;
@@ -530,6 +530,12 @@ drake_platform_destroy(drake_platform_t stream)
 
 volatile void* drake_platform_shared_malloc(size_t size, size_t core)
 {
+	volatile void* addr = ia_malloc(&shared[core_id][core], size, 1);
+	return addr;
+}
+
+volatile void* drake_platform_shared_malloc_mailbox(size_t size, size_t core)
+{
 	volatile void* addr = ia_malloc(&shared[core_id][core], size, 0);
 	return addr;
 }
@@ -601,20 +607,20 @@ drake_platform_core_max()
 }
 
 void
-drake_barrier(void* channel)
+drake_platform_barrier(void* channel)
 {
 	pthread_barrier_wait(&barrier);
 }
 
 void
-drake_exclusive_begin()
+drake_platform_exclusive_begin()
 {
 	printf("[%s:%s:%d][Error] Not implemented\n", __FILE__, __FUNCTION__, __LINE__);
 	abort();
 }
 
 void
-drake_exclusive_end()
+drake_platform_exclusive_end()
 {
 	printf("[%s:%s:%d][Error] Not implemented\n", __FILE__, __FUNCTION__, __LINE__);
 	abort();
@@ -637,6 +643,12 @@ size_t
 drake_platform_shared_size()
 {
 	return DRAKE_IA_SHARED_SIZE;
+}
+
+size_t
+drake_platform_shared_align()
+{
+	return DRAKE_IA_LINE_SIZE;
 }
 
 int
