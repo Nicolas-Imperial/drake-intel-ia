@@ -128,7 +128,7 @@ bin__embed =
 # bincc_bar_export = $(bincc_bar_src)
 
 ## Static C library packages and their sources
-lib_package = drake-ia32-64
+lib_package = drake-intel-ia
 
 libcc__src = 
 libcxx__src = 
@@ -150,29 +150,29 @@ lib__deps =
 ## Embed these files into the final archive
 lib__embed = 
 
-libcc_drake-ia32-64_src = intel-ia32-64.c
-libcxx_drake-ia32-64_src = 
-lib_drake-ia32-64_export = $(libcc_drake-ia32-64_src) $(libcxx_drake-ia32-64_src)
-lib_drake-ia32-64_libs = -lrt
-lib_drake-ia32-64_ldflags = -pthread
-lib_drake-ia32-64_cxxflags = 
-lib_drake-ia32-64_pkg = drake pelib
-lib_drake-ia32-64_pkg_requires = drake pelib
-lib_drake-ia32-64_pkg_libs = -pthread
-lib_drake-ia32-64_export = $(libcc_drake-ia32-64_src) $(libcxx_drake-ia32-64_src)
+libcc_drake-intel-ia_src = intel-ia.c
+libcxx_drake-intel-ia_src = 
+lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
+lib_drake-intel-ia_libs = -lrt
+lib_drake-intel-ia_ldflags = -pthread
+lib_drake-intel-ia_cxxflags = 
+lib_drake-intel-ia_pkg = drake pelib
+lib_drake-intel-ia_pkg_requires = drake pelib
+lib_drake-intel-ia_pkg_libs = -pthread
+lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
 
-sharedcc_package = drake-ia32-64
+sharedcc_package = drake-intel-ia
 
-sharedcc_drake-ia32-64_src = intel-ia32-64.c
-sharedcxx_drake-ia32-64_src = 
-shared_drake-ia32-64_export = $(sharedcc_drake-ia32-64_src) $(sharedcxx_drake-ia32-64_src)
-shared_drake-ia32-64_libs = -lrt 
-shared_drake-ia32-64_ldflags = -pthread
-shared_drake-ia32-64_cflags = -fPIC
-shared_drake-ia32-64_pkg = drake pelib
-shared_drake-ia32-64_pkg_requires = drake pelib
-shared_drake-ia32-64_pkg_libs = -pthread
-shared_drake-ia32-64_export = $(sharedcc_drake-ia32-64_src) $(sharedcxx_drake-ia32-64_src)
+sharedcc_drake-intel-ia_src = intel-ia.c
+sharedcxx_drake-intel-ia_src = 
+shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
+shared_drake-intel-ia_libs = -lrt 
+shared_drake-intel-ia_ldflags = -pthread
+shared_drake-intel-ia_cflags = -fPIC
+shared_drake-intel-ia_pkg = drake pelib
+shared_drake-intel-ia_pkg_requires = drake pelib
+shared_drake-intel-ia_pkg_libs = -pthread
+shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
 
 ## C test packages and their sources
 testcc_package = 

@@ -25,14 +25,21 @@
 #include <time.h>
 #include <pthread.h>
 #include <math.h>
-
 #include <drake/eval.h>
 #include <drake/platform.h>
 #include <drake/stream.h>
 #include <drake/intel-ia.h>
-#if 0
+
+#ifdef debug
+#undef debug
+#undef debug_int
+#undef debug_addr
+#undef debug_size_t
+#endif
+
+#if 1
 #define debug(var) printf("[%s:%s:%d:CORE %zu] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_addr(var) printf("[%s:%s:%d:CORE %zu] %s = \"%X\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_addr(var) printf("[%s:%s:%d:CORE %zu] %s = \"%p\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_int(var) printf("[%s:%s:%d: CORE %zu] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_size_t(var) printf("[%s:%s:%d: CORE %zu] %s = \"%zu\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #else
@@ -42,15 +49,57 @@
 #define debug_size_t(var)
 #endif
 
-enum phase { DRAKE_IA_CREATE, DRAKE_IA_INIT, DRAKE_IA_RUN, DRAKE_IA_DESTROY };
+#define DRAKE_IA_LINE_SIZE 64
+#define DRAKE_IA_SHARED_SIZE (256 * 1024)
 
-static __thread size_t core_id = 0;
-static size_t core_size = 0;
+enum phase { DRAKE_IA_CREATE, DRAKE_IA_INIT, DRAKE_IA_RUN, DRAKE_IA_DESTROY };
 
 struct drake_time {
 	double time;
 };
 typedef struct drake_time *drake_time_t;
+
+typedef struct mem_block
+{
+	void* space;			// pointer to space for data in block             
+	size_t free_size;		// actual free space in block (0 or whole block)  
+	struct mem_block *next;		// pointer to next block in circular linked list 
+} mem_block_t;
+
+typedef struct
+{
+	mem_block_t *tail;		// "last" block in linked list of blocks
+} mem_queue_t;
+
+typedef struct {
+	size_t id;
+	drake_platform_t handler;
+} drake_thread_init_t;
+
+struct drake_platform
+{
+	pthread_t *pthread;
+	drake_stream_t *stream;
+	pthread_barrier_t work_notify;
+	sem_t ready, report_ready;
+	size_t core_size;
+	int *success;
+	enum phase phase;
+	int *frequency;
+	float *voltage;
+	void *task_args;
+	void (*schedule_init)();
+	void (*schedule_destroy)();
+	void* (*task_function)(size_t, task_status_t);
+	sem_t new_order;
+};
+typedef struct drake_platform *drake_platform_t;
+
+static size_t core_size;
+static __thread size_t core_id = 0;
+void **shared_buffer;
+mem_queue_t **shared;
+pthread_barrier_t barrier;
 
 static
 ia_arguments_t
@@ -64,256 +113,26 @@ parse_ia_arguments(size_t argc, char **argv)
 		{
 			argv++;
 			if(argv[0] != NULL)
-			args.size = atoi(argv[0]);
+			{
+				args.size = atoi(argv[0]);
+			}
 			continue;
-		}		
+		}
 	}
 
 	return args;
 }
 
-int
-drake_platform_init(void* obj)
-{
-	char *config_mode = getenv("DRAKE_IA_CONFIG_STRING");
-	ia_arguments_t args;
-	if(config_mode == NULL || strcmp(config_mode, "0") == 0)
-	{
-		// default mode: just use a structure
-		args = *(ia_arguments_t*)obj;
-	}
-	else
-	{
-		// drake-eval mode: parse strings
-		args_t *str_args = (args_t*)obj;
-		args = parse_ia_arguments(str_args->argc, str_args->argv);
-	}
-
-	core_size = args.size;
-
-	return 1;
-}
-
-typedef struct {
-	size_t id;
-	drake_platform_stream_t handler;
-} drake_thread_init_t;
-
-struct drake_platform_stream
-{
-	pthread_t *pthread;
-	pthread_barrier_t work_notify;
-	pthread_cond_t new_order;
-	pthread_mutex_t order_mutex;
-	sem_t ready, report_ready;
-	int *success;
-	enum phase phase;
-	int *frequency;
-	float *voltage;
-	void *task_args;
-	void (*schedule_init)();
-	void (*schedule_destroy)();
-	void* (*task_function)(size_t, task_status_t);
-	drake_stream_t *stream;
-};
-typedef struct drake_platform_stream *drake_platform_stream_t;
-
-static 
-void*
-drake_ia_thread(void* args)
-{
-	// Collect its core id
-	drake_thread_init_t *init = (drake_thread_init_t*)args;
-	core_id = init->id;
-	drake_platform_stream_t handler = init->handler;
-
-	pthread_mutex_t order_mutex;
-	pddthread_mutex_init(&order_mutex, NULL);
-
-	// Wait for something to do
-	int done = 0;
-	while(!done)
-	{
-		// Wait for someone to tell to do something
-		pthread_mutex_lock(&order_mutex);
-		pthread_cond_wait(&handler->new_order, &order_mutex);
-
-		// See what we have to do, and do it
-		switch(handler->phase)
-		{
-			DRAKE_IA_CREATE:
-			{
-				handler->stream[core_id] = drake_stream_create_explicit(handler->schedule_init, handler->schedule_destroy, handler->task_function);
-			}
-			break;
-			DRAKE_IA_INIT:
-			{
-				handler->success[core_id] = drake_stream_init(&handler->stream[core_id], handler->task_args);
-			}
-			break;
-			DRAKE_IA_RUN:
-			{
-				handler->success[core_id] = drake_stream_run(&handler->stream[core_id]);
-			}
-			break;
-			DRAKE_IA_DESTROY:
-			DRAKE_IA_NONE:
-			{
-				done = 1;
-			}
-			break;
-		}
-
-		// Wait for everyone to be done
-		pthread_barrier_wait(&handler->work_notify);
-
-		// One lucky thread will have to tell the master thread everyone is done
-		if(sem_trywait(&handler->report_ready))
-		{
-			// Tell other threads they can already wait for new orders
-			pthread_barrier_wait(&handler->work_notify);
-			// Tell master thread everyone is done
-			sem_post(&handler->ready);
-			// Let another thread to notify master thread next time
-			sem_post(&handler->report_ready);
-		}
-		else
-		{
-			// Just wait for notifier thread to come
-			pthread_barrier_wait(&handler->work_notify);
-		}
-	}
-
-	// Do some cleanup
-	pthread_mutex_destroy(&order_mutex);
-
-	// Terminate
-	return NULL;
-}
-
-drake_platform_stream_t drake_platform_stream_create_explicit(void (*schedule_init)(), void (*schedule_destroy)(), void* (*task_function)(size_t id, task_status_t status))
-{
-	drake_thread_init_t *init = drake_platform_private_malloc(sizeof(drake_thread_init_t) * core_size);
-	drake_platform_stream_t stream = drake_platform_private_malloc(sizeof(struct drake_platform_stream));
-
-	stream->pthread = drake_platform_private_malloc(sizeof(pthread_t) * core_size);
-	stream->stream = drake_platform_private_malloc(sizeof(drake_stream_t) * core_size);
-	stream->success = drake_platform_private_malloc(sizeof(int) * core_size);
-	pthread_barrier_init(&stream->work_notify, NULL, core_size);
-	pthread_cond_init(&stream->new_order, NULL);
-	sem_init(&stream->report_ready, 0, 0);
-	sem_init(&stream->ready, 0, 0);
-
-	size_t i;
-	for(i = 0; i < core_size; i++)
-	{
-		init[i].handler = stream;
-		init[i].id = i;
-		pthread_create(&stream->pthread[i], NULL, drake_ia_thread, (void*)init);
-	}
-
-	// Give the work to be done
-	stream->phase = DRAKE_IA_CREATE;
-	stream->schedule_init = schedule_init;
-	stream->schedule_destroy = schedule_destroy;
-	stream->task_function = task_function;
-
-	// Unlock threads
-	pthread_cond_broadcast(&stream->new_order);
-
-	// Wait for work completion notification
-	sem_wait(&stream->ready);
-
-	// Free argument passing memory
-	drake_platform_private_free(init);
-
-	// Return newly built stream
-	return stream;
-}
-
-int
-drake_platform_stream_init(drake_platform_stream_t stream, void* arg)
-{
-	stream->task_args = arg;
-	stream->phase = DRAKE_IA_INIT;
-	pthread_cond_broadcast(&stream->new_order);
-	sem_wait(&stream->ready);
-
-	size_t i;
-	int success = 1;
-	for(i = 0; i < drake_platform_core_size(); i++)
-	{
-		success = success && stream->success[i];
-	}
-
-	return success;	
-}
-
-int
-drake_platform_stream_run(drake_platform_stream_t stream)
-{
-	stream->phase = DRAKE_IA_RUN;
-	pthread_cond_broadcast(&stream->new_order);
-	sem_wait(&stream->ready);
-
-	size_t i;
-	int success = 1;
-	for(i = 0; i < drake_platform_core_size(); i++)
-	{
-		success = success && stream->success[i];
-	}
-
-	return success;	
-}
-
-void
-drake_platform_stream_destroy(drake_platform_stream_t stream)
-{
-	stream->phase = DRAKE_IA_DESTROY;
-	pthread_cond_broadcast(&stream->new_order);
-	sem_wait(&stream->ready);
-
-	pthread_barrier_destroy(&stream->work_notify);
-	pthread_cond_destroy(&stream->new_order);
-	sem_destroy(&stream->ready);
-	sem_destroy(&stream->report_ready);
-	drake_platform_private_free(stream->pthread);
-	drake_platform_private_free(stream->stream);
-	drake_platform_private_free(stream->success);
-}
-
-int drake_platform_finalize(void* obj)
-{
-	return 0;
-}
-
-typedef struct mem_block
-{
-	void* space;			// pointer to space for data in block             
-	size_t free_size;		// actual free space in block (0 or whole block)  
-	struct mem_block *next;	// pointer to next block in circular linked list 
-} mem_block_t;
-
-typedef struct
-{
-	mem_block_t *tail;		// "last" block in linked list of blocks
-} mem_queue_t;
-
 static
-mem_queue_t*
-ia_malloc_init(void* mem, size_t size)
+void
+ia_malloc_init(mem_queue_t* spacep, void* mem, size_t size)
 {
-	mem_queue_t *spacep = malloc(sizeof(mem_queue_t));
 	spacep->tail = (mem_block_t*) malloc(sizeof(mem_block_t));
 	spacep->tail->free_size = size;
 	spacep->tail->space = mem;
 	/* make a circular list by connecting tail to itself */
 	spacep->tail->next = spacep->tail;
-
-	return spacep;
 }
-
-#define DRAKE_IA_LINE_SIZE 64
 
 static
 void*
@@ -475,14 +294,249 @@ ia_free(mem_queue_t *spacep, void *ptr)
 	}
 }
 
-volatile void* drake_platform_shared_malloc(size_t size, size_t core)
+static 
+void*
+drake_ia_thread(void* args)
 {
-	return malloc(size);
+	size_t i;
+	// Collect its core id
+	drake_thread_init_t *init = (drake_thread_init_t*)args;
+	core_id = init->id;
+	drake_platform_t handler = init->handler;
+	shared_buffer[core_id] = malloc(DRAKE_IA_SHARED_SIZE);
+
+	// Wait for all cores to have their shared memory buffer allocated
+	pthread_barrier_wait(&handler->work_notify);
+	// Notify master thread that all threads are ready
+	if(sem_trywait(&handler->report_ready) == 0)
+	{
+		sem_post(&handler->ready);
+		pthread_barrier_wait(&handler->work_notify);
+		sem_post(&handler->report_ready);
+	}
+	else
+	{
+		pthread_barrier_wait(&handler->work_notify);
+	}
+	
+	// Initialize memory allocator pointers for all cores
+	shared[core_id] = malloc(DRAKE_IA_SHARED_SIZE);
+	for(i = 0; i < core_size; i++)
+	{
+		ia_malloc_init(&shared[core_id][i], shared_buffer[i], DRAKE_IA_SHARED_SIZE);
+	}
+
+
+	// Wait for something to do
+	int done = 0;
+	while(!done)
+	{
+		// Wait for someone to tell to do something
+		if(sem_trywait(&handler->report_ready) == 0)
+		{
+			sem_wait(&handler->new_order);
+			pthread_barrier_wait(&handler->work_notify);
+			sem_post(&handler->report_ready);
+		}
+		else
+		{
+			pthread_barrier_wait(&handler->work_notify);
+		}
+
+		// See what we have to do, and do it
+		switch(handler->phase)
+		{
+			case DRAKE_IA_CREATE:
+			{
+				handler->stream[core_id] = drake_stream_create_explicit(handler->schedule_init, handler->schedule_destroy, handler->task_function);
+			}
+			break;
+			case DRAKE_IA_INIT:
+			{
+				handler->success[core_id] = drake_stream_init(&handler->stream[core_id], handler->task_args);
+			}
+			break;
+			case DRAKE_IA_RUN:
+			{
+				handler->success[core_id] = drake_stream_run(&handler->stream[core_id]);
+			}
+			break;
+			case DRAKE_IA_DESTROY:
+			{
+				done = 1;
+			}
+			break;
+		}
+
+		// Wait for everyone to be done
+		pthread_barrier_wait(&handler->work_notify);
+
+		// One lucky thread will have to tell the master thread everyone is done
+		if(sem_trywait(&handler->report_ready) == 0)
+		{
+			// Tell other threads they can already wait for new orders
+			pthread_barrier_wait(&handler->work_notify);
+			// Tell master thread everyone is done
+			sem_post(&handler->ready);
+			// Let another thread to notify master thread next time
+			sem_post(&handler->report_ready);
+		}
+		else
+		{
+			// Just wait for notifier thread to come
+			pthread_barrier_wait(&handler->work_notify);
+		}
+	}
+
+	// Do some cleanup
+	free(shared_buffer[core_id]);
+
+	// Terminate
+	return NULL;
 }
 
-int drake_platform_shared_free(volatile void* addr)
+drake_platform_t
+drake_platform_init(void* obj)
 {
-	free((void*)addr);
+	drake_platform_t stream = drake_platform_private_malloc(sizeof(struct drake_platform));
+
+	// Parse arguments
+	char *config_mode = getenv("DRAKE_IA_CONFIG_ARGS");
+	ia_arguments_t args;
+	if(config_mode == NULL || strcmp(config_mode, "0") == 0)
+	{
+		// default mode: just use a structure
+		args = *(ia_arguments_t*)obj;
+	}
+	else
+	{
+		// drake-eval mode: parse strings
+		args_t *str_args = (args_t*)obj;
+		args = parse_ia_arguments(str_args->argc, str_args->argv);
+	}
+
+	core_size = args.size;
+	
+	drake_thread_init_t *init = malloc(sizeof(drake_thread_init_t) * core_size);
+
+	shared_buffer = malloc(sizeof(void*) * core_size);
+	shared = malloc(sizeof(mem_queue_t) * core_size);
+	stream->pthread = drake_platform_private_malloc(sizeof(pthread_t) * core_size);
+	stream->stream = drake_platform_private_malloc(sizeof(drake_stream_t) * core_size);
+	stream->success = drake_platform_private_malloc(sizeof(int) * core_size);
+	pthread_barrier_init(&stream->work_notify, NULL, core_size);
+	pthread_barrier_init(&barrier, NULL, core_size);
+	sem_init(&stream->report_ready, 0, 1);
+	sem_init(&stream->ready, 0, 0);
+	sem_init(&stream->new_order, 0, 0);
+
+	size_t i;
+	for(i = 0; i < core_size; i++)
+	{
+		init[i].handler = stream;
+		init[i].id = i;
+		pthread_create(&stream->pthread[i], NULL, drake_ia_thread, (void*)&init[i]);
+	}
+
+	// Wait for all threads to be created
+	sem_wait(&stream->ready);
+
+	return stream;
+}
+
+int
+drake_platform_stream_create_explicit(drake_platform_t stream, void (*schedule_init)(), void (*schedule_destroy)(), void* (*task_function)(size_t id, task_status_t status))
+{
+	// Give the work to be done
+	stream->phase = DRAKE_IA_CREATE;
+	stream->schedule_init = schedule_init;
+	stream->schedule_destroy = schedule_destroy;
+	stream->task_function = task_function;
+
+	// Unlock threads
+	sem_post(&stream->new_order);
+
+	// Wait for work completion notification
+	sem_wait(&stream->ready);
+
+	int success = 1;
+	size_t i;
+	for(i = 0; i < core_size; i++)
+	{
+		success = success && stream->success[i];
+	}
+
+	// Return newly built stream
+	return success;
+}
+
+int
+drake_platform_stream_init(drake_platform_t stream, void* arg)
+{
+	size_t i;
+	stream->task_args = arg;
+	stream->phase = DRAKE_IA_INIT;
+	sem_post(&stream->new_order);
+	sem_wait(&stream->ready);
+
+	int success = 1;
+	for(i = 0; i < drake_platform_core_size(); i++)
+	{
+		success = success && stream->success[i];
+	}
+
+	return success;	
+}
+
+int
+drake_platform_stream_run(drake_platform_t stream)
+{
+	stream->phase = DRAKE_IA_RUN;
+	sem_post(&stream->new_order);
+	sem_wait(&stream->ready);
+
+	size_t i;
+	int success = 1;
+	for(i = 0; i < drake_platform_core_size(); i++)
+	{
+		success = success && stream->success[i];
+	}
+
+	return success;	
+}
+
+void
+drake_platform_stream_destroy(drake_platform_t stream)
+{
+	stream->phase = DRAKE_IA_DESTROY;
+	sem_post(&stream->new_order);
+	sem_wait(&stream->ready);
+}
+
+int
+drake_platform_destroy(drake_platform_t stream)
+{
+	pthread_barrier_destroy(&stream->work_notify);
+	pthread_barrier_destroy(&barrier);
+	sem_destroy(&stream->new_order);
+	sem_destroy(&stream->ready);
+	sem_destroy(&stream->report_ready);
+	drake_platform_private_free(stream->pthread);
+	drake_platform_private_free(stream->stream);
+	drake_platform_private_free(stream->success);
+
+	return 0;
+}
+
+volatile void* drake_platform_shared_malloc(size_t size, size_t core)
+{
+	volatile void* addr = ia_malloc(&shared[core_id][core], size, 0);
+	return addr;
+}
+
+int drake_platform_shared_free(volatile void* addr, size_t core)
+{
+	ia_free(&shared[core_id][core], (void*)addr);
 }
 
 void*
@@ -494,18 +548,20 @@ drake_platform_private_malloc(size_t size)
 void
 drake_platform_private_free(void *addr)
 {
-	free(addr);
+	free((void*)addr);
 }
 
 void*
 drake_platform_store_malloc(size_t size)
 {
+	abort();
 	return malloc(size);
 }
 
 void
 drake_platform_store_free(void *addr)
 {
+	abort();
 	free(addr);
 }
 
@@ -520,7 +576,7 @@ int drake_platform_pull(volatile void* addr)
 int drake_platform_commit(volatile void* addr)
 {
 	(void*)(addr);
-	// Wherever you wrote, just invalidate the line
+	// Do nothing and let hardware cache coherency do the work
 
 	// This cannot go wrong
 	return 1;
@@ -529,52 +585,58 @@ int drake_platform_commit(volatile void* addr)
 size_t
 drake_platform_core_id()
 {
-	return 0;
+	return core_id;
 }
 
 size_t
 drake_platform_core_size()
 {
-	return 0;
+	return core_size;
 }
 
 size_t
 drake_platform_core_max()
 {
-	return 16;
+	return core_size;
 }
 
 void
 drake_barrier(void* channel)
 {
+	pthread_barrier_wait(&barrier);
 }
 
 void
 drake_exclusive_begin()
 {
+	printf("[%s:%s:%d][Error] Not implemented\n", __FILE__, __FUNCTION__, __LINE__);
+	abort();
 }
 
 void
 drake_exclusive_end()
 {
+	printf("[%s:%s:%d][Error] Not implemented\n", __FILE__, __FUNCTION__, __LINE__);
+	abort();
 }
 
 void*
 drake_remote_addr(void* addr, size_t core)
 {
-	return addr;
+	void* remote = shared_buffer[core] + (addr - shared_buffer[core_id]);
+	return remote;
 }
 
 size_t
 drake_platform_store_size()
 {
-	return 256 * 1024;
+	return 0;
 }
 
 size_t
-drake_platform_local_size()
+drake_platform_shared_size()
 {
-	return 256 * 1024;
+	return DRAKE_IA_SHARED_SIZE;
 }
 
 int

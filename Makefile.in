@@ -17,7 +17,7 @@
 #
 
 
-package = drake-ia32-64
+package = drake-intel-ia
 version = 1
 minor = 0
 release = 0
