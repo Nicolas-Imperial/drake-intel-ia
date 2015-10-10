@@ -37,7 +37,7 @@
 #undef debug_size_t
 #endif
 
-#if 1
+#if 10
 #define debug(var) printf("[%s:%s:%d:CORE %zu] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_addr(var) printf("[%s:%s:%d:CORE %zu] %s = \"%p\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_int(var) printf("[%s:%s:%d:CORE %zu] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
@@ -50,7 +50,8 @@
 #endif
 
 #define DRAKE_IA_LINE_SIZE 64
-#define DRAKE_IA_SHARED_SIZE (256 * 1024)
+//#define DRAKE_IA_SHARED_SIZE (256 * 1024)
+#define DRAKE_IA_SHARED_SIZE (2 * 1024)
 
 enum phase { DRAKE_IA_CREATE, DRAKE_IA_INIT, DRAKE_IA_RUN, DRAKE_IA_DESTROY };
 
@@ -69,6 +70,7 @@ typedef struct mem_block
 typedef struct
 {
 	mem_block_t *tail;		// "last" block in linked list of blocks
+	void* mem;
 } mem_queue_t;
 
 typedef struct {
@@ -132,6 +134,7 @@ ia_malloc_init(mem_queue_t* spacep, void* mem, size_t size)
 	spacep->tail->space = mem;
 	/* make a circular list by connecting tail to itself */
 	spacep->tail->next = spacep->tail;
+	spacep->mem = mem;
 }
 
 static
@@ -165,30 +168,46 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 		b1->next = b2;
 		b2->free_size = b1->free_size - size;
 		b2->space  = b1->space + size;
-		// need to update the tail
-		spacep->tail = b2;
-
+		
+		// Display the block used  
 		if(!aligned || ((size_t)b1->space % DRAKE_IA_LINE_SIZE) == 0)
 		{
+			// Display the new block that holds the unused memory
+
+
+			// need to update the tail
+			spacep->tail = b2;
+
 			b1->free_size = 0;
 			return b1->space;
 		}
 		else
 		{
-			b2 = (mem_block_t*) malloc(sizeof(mem_block_t));
-			b2->next = b1->next;
-			b1->next = b2;
-			b2->space = b1->space + DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
+			// need to update the tail
+			spacep->tail = b2;
+
+			b3 = (mem_block_t*) malloc(sizeof(mem_block_t));
+			b3->next = b1->next;
+			b1->next = b3;
+			b3->space = b1->space + DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
 			b1->free_size = DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
-			b2->free_size = 0;
-			return b2->space;
+			b2->space += DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
+			b2->free_size -= DRAKE_IA_LINE_SIZE - ((size_t)b1->space % DRAKE_IA_LINE_SIZE);
+
+			// Display the new block that holds the unused memory
+
+			// Display the new block holding memory skipped for alignment
+
+			// Display the final block allocated 
+
+			b3->free_size = 0;
+			return b3->space;
 		}
 	}
 
 	// tail didn't have enough space; loop over whole list from beginning
 	// As for above, stop at the first free space big enough to handle the request if no aligned memory is requested
 	// Otherwise, check each space after memory alignment
-	//while (((b1->next->free_size < size) && !aligned) || (((((size_t)b1->next->space % DRAKE_IA_LINE_SIZE) != 0) || (b1->next->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->next->space % DRAKE_IA_LINE_SIZE) < size)) && aligned))
 	while   (((b1->next->free_size < size) && !aligned) || (aligned && (((b1->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b1->space % DRAKE_IA_LINE_SIZE) < size) && (((size_t)b1->space % DRAKE_IA_LINE_SIZE) != 0)) || ((((size_t)b1->space % DRAKE_IA_LINE_SIZE) == 0) && (b1->next->free_size < size)))))
 	{
 		if (b1->next == spacep->tail)
@@ -199,8 +218,12 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 	}
 
 	b2 = b1->next;
-	// If memory alignment is requested and the block is bigger than requested, then we need to skip some bytes before allocating
-	// If not, then we know that the free block is already aligned
+
+	// Display the block selected
+
+	// If memory alignment is requested and the block is strictly bigger than requested, then we need to skip some bytes before allocating
+	// If the block is not strictly bigger than requested, then we know that the free block is already aligned because otherwise the loop above 
+	// would have returned an allocation failure
 	if (b2->free_size > size && aligned)
 	{
 		b3 = (mem_block_t*) malloc(sizeof(mem_block_t));
@@ -209,6 +232,9 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 		b3->free_size = b2->free_size - DRAKE_IA_LINE_SIZE + ((size_t)b2->space % DRAKE_IA_LINE_SIZE);
 		b2->free_size = b2->free_size - b3->free_size;
 		b3->space = b2->space + DRAKE_IA_LINE_SIZE - ((size_t)b2->space % DRAKE_IA_LINE_SIZE);
+
+		// Display the block that handles the memory skipped
+
 		b2 = b3;
 	}
 
@@ -222,6 +248,7 @@ ia_malloc(mem_queue_t *spacep, size_t size, int aligned)
 		b3->free_size = b2->free_size - size; // b3 gets remainder free space
 		b3->space = b2->space + size; // need to shift space pointer
 	}
+
 
 	// Now b2 is the exact size and aligned as requested
 	b2->free_size = 0; // block b2 is completely used
@@ -349,6 +376,7 @@ drake_ia_thread(void* args)
 			case DRAKE_IA_CREATE:
 			{
 				handler->stream[core_id] = drake_stream_create_explicit(handler->schedule_init, handler->schedule_destroy, handler->task_function);
+				handler->success[core_id] = 1;
 			}
 			break;
 			case DRAKE_IA_INIT:
@@ -363,6 +391,7 @@ drake_ia_thread(void* args)
 			break;
 			case DRAKE_IA_DESTROY:
 			{
+				handler->success[core_id] = drake_stream_destroy(&handler->stream[core_id]);
 				done = 1;
 			}
 			break;
@@ -505,12 +534,21 @@ drake_platform_stream_run(drake_platform_t stream)
 	return success;	
 }
 
-void
+int
 drake_platform_stream_destroy(drake_platform_t stream)
 {
 	stream->phase = DRAKE_IA_DESTROY;
 	sem_post(&stream->new_order);
 	sem_wait(&stream->ready);
+
+	size_t i;
+	int success = 1;
+	for(i = 0; i < drake_platform_core_size(); i++)
+	{
+		success = success && stream->success[i];
+	}
+
+	return success;	
 }
 
 int
@@ -603,7 +641,7 @@ drake_platform_core_size()
 size_t
 drake_platform_core_max()
 {
-	return core_size;
+	return 16;
 }
 
 void
@@ -742,7 +780,7 @@ int drake_platform_sleep(drake_time_t period)
 
 drake_time_t drake_platform_time_alloc()
 {
-	return malloc(sizeof(drake_time_t));
+	return malloc(sizeof(struct drake_time));
 }
 
 FILE*
