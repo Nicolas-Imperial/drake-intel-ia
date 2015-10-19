@@ -369,7 +369,8 @@ volatile void* drake_platform_shared_malloc_mailbox(size_t size, size_t core)
 	return addr;
 }
 
-int drake_platform_shared_free(volatile void* addr, size_t core)
+void
+drake_platform_shared_free(volatile void* addr, size_t core)
 {
 	pelib_mem_free(&shared[core_id][core], (void*)addr);
 }
