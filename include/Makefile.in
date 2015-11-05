@@ -21,7 +21,7 @@
 attach = 
 
 ## Further directories to follow
-subdirs = 
+subdirs = drake
 
 ## Targets to run before any other target runs
 ## Can be a custom target
