@@ -16,7 +16,7 @@ scp `ls *.tar.gz|sort -Vr|head -1` $target/download/
 
 ## Generate documentation and copy it in output directory
 make doc
-echo '<!--#set var='\"absolute\" value=\"/~nicme26/dev/drake/\"'-->' | tee -a doc/drake-ia32-64-data.shtml
-echo '<!--#set var='\"relative\" value=\"../\"'-->' | tee -a doc/drake-ia32-64-data.shtml
+echo '<!--#set var='\"absolute\" value=\"/~nicme26/dev/drake/\"'-->' | tee -a doc/drake-intel-ia-data.shtml
+echo '<!--#set var='\"relative\" value=\"../\"'-->' | tee -a doc/drake-intel-ia-data.shtml
 scp -r doc/* $target
 
