@@ -18,10 +18,10 @@
 
 
 ## All files to include in a distribution package
-attach = 
+attach = intel-ia.h
 
 ## Further directories to follow
-subdirs = drake
+subdirs = 
 
 ## Targets to run before any other target runs
 ## Can be a custom target
