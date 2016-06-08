@@ -150,27 +150,27 @@ lib__deps =
 ## Embed these files into the final archive
 lib__embed = 
 
-libcc_drake-intel-ia_src = intel-ia.c
+libcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c
 libcxx_drake-intel-ia_src = 
-lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
+lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src) sysfs.h cpu_manager.h
 lib_drake-intel-ia_libs = -lrt
 lib_drake-intel-ia_ldflags = -pthread
 lib_drake-intel-ia_cxxflags = 
-lib_drake-intel-ia_pkg = drake pelib
-lib_drake-intel-ia_pkg_requires = drake pelib
+lib_drake-intel-ia_pkg = drake pelib-core
+lib_drake-intel-ia_pkg_requires = drake pelib-core
 lib_drake-intel-ia_pkg_libs = -pthread
 lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
 
 sharedcc_package = drake-intel-ia
 
-sharedcc_drake-intel-ia_src = intel-ia.c
+sharedcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c
 sharedcxx_drake-intel-ia_src = 
 shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
 shared_drake-intel-ia_libs = -lrt 
 shared_drake-intel-ia_ldflags = -pthread
 shared_drake-intel-ia_cflags = -fPIC
-shared_drake-intel-ia_pkg = drake pelib
-shared_drake-intel-ia_pkg_requires = drake pelib
+shared_drake-intel-ia_pkg = drake pelib-core
+shared_drake-intel-ia_pkg_requires = drake pelib-core
 shared_drake-intel-ia_pkg_libs = -pthread
 shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
 
