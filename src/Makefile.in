@@ -160,6 +160,7 @@ lib_drake-intel-ia_pkg = drake pelib-core
 lib_drake-intel-ia_pkg_requires = drake pelib-core
 lib_drake-intel-ia_pkg_libs = -pthread
 lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
+lib_drake-intel-ia_cflags_intel-ia.c = -D_GNU_SOURCE
 
 sharedcc_package = drake-intel-ia
 
@@ -173,6 +174,7 @@ shared_drake-intel-ia_pkg = drake pelib-core
 shared_drake-intel-ia_pkg_requires = drake pelib-core
 shared_drake-intel-ia_pkg_libs = -pthread
 shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
+shared_drake-intel-ia_cflags_intel-ia.c = -D_GNU_SOURCE
 
 ## C test packages and their sources
 testcc_package = 

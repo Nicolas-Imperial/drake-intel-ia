@@ -32,6 +32,7 @@
 #include <pelib/malloc.h>
 #include <string.h>
 #include <stdint.h>
+#include <sched.h>
 
 #include "sysfs.h"
 #include "cpu_manager.h"
