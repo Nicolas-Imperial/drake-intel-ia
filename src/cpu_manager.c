@@ -32,17 +32,17 @@ cpu_manager_init()
 	size_t i;
 	cpu_manager_t manager;
 	manager.present = parse_simple_set("/sys/devices/system/cpu/present");
-
+	
 	// Switch all cores on and prepare dives to switch off hyperthread cores
-#define SYSFS_ONLINE_DEVICE_PATTERN "devices/system/cpu/cpu%u/online"
+#define SYSFS_ONLINE_DEVICE_PATTERN "devices/system/cpu/cpu%zu/online"
 	manager.hotplug = malloc(sizeof(sysfs_attr_tp) * (manager.present.size));
 	for(i = 0; i < manager.present.size; i++)
 	{
 		int core = manager.present.member[i];
 		if(core != 0)
 		{
-			char *sysfs_online_device = malloc(sizeof(char) * (strlen(SYSFS_ONLINE_DEVICE_PATTERN) - 2 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
-			sprintf(sysfs_online_device, SYSFS_ONLINE_DEVICE_PATTERN, core);
+			char *sysfs_online_device = malloc(sizeof(char) * (strlen(SYSFS_ONLINE_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+			sprintf(sysfs_online_device, SYSFS_ONLINE_DEVICE_PATTERN, i);
 			manager.hotplug[i] = sysfs_attr_open_rw(sysfs_online_device, zeroone_str, 2);
 			sysfs_attr_write(manager.hotplug[i], ONE);
 			free(sysfs_online_device);
@@ -51,28 +51,47 @@ cpu_manager_init()
 
 	// Find and switch off all hyperthreading cpus
 	// Not necessary when we have scheduling for frequency islands
-#define SYSFS_CORE_ID_DEVICE_PATTERN "devices/system/cpu/cpu%u/topology/core_id"
-	int active = 0;
+#define SYSFS_CORE_ID_DEVICE_PATTERN "devices/system/cpu/cpu%zu/topology/core_id"
+#define SYSFS_PACKAGE_ID_DEVICE_PATTERN "devices/system/cpu/cpu%zu/topology/physical_package_id"
+	int max_core_id = 0;
 	for(i = 0; i < manager.present.size; i++)
 	{
-		char *sysfs_core_id_device = malloc(sizeof(char) * (strlen(SYSFS_CORE_ID_DEVICE_PATTERN) - 2 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
-		sprintf(sysfs_core_id_device, SYSFS_CORE_ID_DEVICE_PATTERN, manager.present.member[i]);
+		if(max_core_id < manager.present.member[i])
+		{
+			max_core_id = manager.present.member[i];
+		}
+	}
+	int active = 0;
+
+	// Deactivate hyperthreading cores
+	// Perhaps it is worth to not switch them off later
+	for(i = 0; i < manager.present.size; i++)
+	{
+		char *sysfs_core_id_device = malloc(sizeof(char) * (strlen(SYSFS_CORE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+		sprintf(sysfs_core_id_device, SYSFS_CORE_ID_DEVICE_PATTERN, i);
 		sysfs_attr_tp sysfs_core_id_attr = sysfs_attr_open_ro(sysfs_core_id_device);
 		char *core_id_str = sysfs_attr_read_alloc(sysfs_core_id_attr);
 		size_t core_id = atoi(core_id_str);
+		sysfs_attr_close(sysfs_core_id_attr);
+		free(sysfs_core_id_device);
 
-		if(((active >> core_id) & 1) == 0)
+		char *sysfs_package_id_device = malloc(sizeof(char) * (strlen(SYSFS_PACKAGE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+		sprintf(sysfs_package_id_device, SYSFS_PACKAGE_ID_DEVICE_PATTERN, i);
+		sysfs_attr_tp sysfs_package_id_attr = sysfs_attr_open_ro(sysfs_package_id_device);
+		char *package_id_str = sysfs_attr_read_alloc(sysfs_package_id_attr);
+		size_t package_id = atoi(package_id_str);
+		sysfs_attr_close(sysfs_package_id_attr);
+		free(sysfs_package_id_device);
+		size_t id = core_id + package_id * (max_core_id + 1);
+
+		if(((active >> id) & 1) == 0)
 		{
-			active = active | (1 << core_id);
+			active = active | (1 << id);
 		}
 		else
 		{
-			//debug("Switching core off");
 			sysfs_attr_write(manager.hotplug[i], ZERO);
 		}
-
-		sysfs_attr_close(sysfs_core_id_attr);
-		free(sysfs_core_id_device);
 	}
 
 	// Get the set of cores still online
@@ -87,6 +106,7 @@ cpu_manager_init()
 	manager.cpufreq_governor = malloc(sizeof(sysfs_attr_tp) * (manager.online.size));
 	manager.freq = malloc(sizeof(char **) * (manager.online.size));
 	manager.nb_freq = malloc(sizeof(size_t) * (manager.online.size));
+	manager.global_core_id = malloc(sizeof(size_t) * (manager.online.size));
 	for(i = 0; i < manager.online.size; i++)
 	{
 		char *sysfs_cpufreq_governor = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_GOVERNOR_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
@@ -96,7 +116,7 @@ cpu_manager_init()
 		free(sysfs_cpufreq_governor);
 
 		// Read frequency levels
-		char *sysfs_freq = malloc(sizeof(char) * (strlen(SYSFS_FREQ_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
+		char *sysfs_freq = malloc(sizeof(char) * (strlen(SYSFS_FREQ_PATTERN) - 2 + (i == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
 		sprintf(sysfs_freq, SYSFS_FREQ_PATTERN, manager.online.member[i]);
 		sysfs_attr_tp freq = sysfs_attr_open_ro(sysfs_freq);
 		char *freq_str = sysfs_attr_read_alloc(freq);
@@ -125,7 +145,7 @@ cpu_manager_init()
 		sysfs_attr_close(freq);
 		free(sysfs_freq);
 
-		char *sysfs_scaling = malloc(sizeof(char) * (strlen(SYSFS_SCALING_PATTERN) - 2 + (i == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
+		char *sysfs_scaling = malloc(sizeof(char) * (strlen(SYSFS_SCALING_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
 		sprintf(sysfs_scaling, SYSFS_SCALING_PATTERN, manager.online.member[i]);
 		manager.scaling[i] = sysfs_attr_open_rw(sysfs_scaling, manager.freq[i], manager.nb_freq[i]);
 		//sysfs_attr_write(manager.scaling[i], 0);
@@ -136,9 +156,34 @@ cpu_manager_init()
 		manager.cpufreq_current[i] = sysfs_attr_open_ro(sysfs_cpufreq_current);
 		//debug(sysfs_attr_read_alloc(manager.cpufreq_current[i]));
 		free(sysfs_cpufreq_current);
+
+		// Get a global ID for this core
+		char *sysfs_core_id_device = malloc(sizeof(char) * (strlen(SYSFS_CORE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+		sprintf(sysfs_core_id_device, SYSFS_CORE_ID_DEVICE_PATTERN, i);
+		sysfs_attr_tp sysfs_core_id_attr = sysfs_attr_open_ro(sysfs_core_id_device);
+		char *core_id_str = sysfs_attr_read_alloc(sysfs_core_id_attr);
+		size_t core_id = atoi(core_id_str);
+		sysfs_attr_close(sysfs_core_id_attr);
+		free(sysfs_core_id_device);
+
+		char *sysfs_package_id_device = malloc(sizeof(char) * (strlen(SYSFS_PACKAGE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+		sprintf(sysfs_package_id_device, SYSFS_PACKAGE_ID_DEVICE_PATTERN, i);
+		sysfs_attr_tp sysfs_package_id_attr = sysfs_attr_open_ro(sysfs_package_id_device);
+		char *package_id_str = sysfs_attr_read_alloc(sysfs_package_id_attr);
+		size_t package_id = atoi(package_id_str);
+		sysfs_attr_close(sysfs_package_id_attr);
+		free(sysfs_package_id_device);
+
+		size_t id = core_id + package_id * (max_core_id + 1);
+		if(id >= manager.online.size)
+		{
+			fprintf(stderr, "This platform is composed of physical processors that each include different amounts of cores\n. This Intel-ia backend for Drake backend doesn't support this scheme.\n");
+			abort();
+		}
+		manager.global_core_id[id] = i;
 	}
 
-#define SYSFS_CSTATE_PATTERN_PART1 "devices/system/cpu/cpu%u/cpuidle"
+#define SYSFS_CSTATE_PATTERN_PART1 "devices/system/cpu/cpu%d/cpuidle"
 #define SYSFS_CSTATE_PATTERN_PART2 "state%u/disable"
 	manager.cstate = malloc(sizeof(cstate_t) * (manager.online.size));
 	for(i = 0; i < manager.online.size; i++)
@@ -173,9 +218,9 @@ cpu_manager_init()
 			size_t j;
 			for(j = 0; j < manager.cstate[i].nb_states; j++)
 			{
-				char *sysfs_cstate = malloc(sizeof(char) * (strlen(SYSFS_CSTATE_PATTERN_PART1) - 2 + 1 + strlen(SYSFS_CSTATE_PATTERN_PART2) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + (j == 0 ? 1 : floor(log10(j)) + 1) + 1));
+				char *sysfs_cstate = malloc(sizeof(char) * (strlen(SYSFS_CSTATE_PATTERN_PART1) - 2 + 1 + strlen(SYSFS_CSTATE_PATTERN_PART2) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + (manager.cstate[i].state[j] == 0 ? 1 : floor(log10(manager.cstate[i].state[j])) + 1) + 1));
 				sprintf(sysfs_cstate, SYSFS_CSTATE_PATTERN_PART1, manager.online.member[i]);
-				sprintf(sysfs_cstate + strlen(SYSFS_CSTATE_PATTERN_PART1) - 2 + (unsigned int)(manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1), "/" SYSFS_CSTATE_PATTERN_PART2, manager.cstate[i].state[j]);
+				sprintf(sysfs_cstate + strlen(SYSFS_CSTATE_PATTERN_PART1) - 2 + (unsigned int)(i == 0 ? 1 : floor(log10(i)) + 1), "/" SYSFS_CSTATE_PATTERN_PART2, manager.cstate[i].state[j]);
 				manager.cstate[i].attr[j] = sysfs_attr_open_rw(sysfs_cstate, zeroone_str, 2);
 				sysfs_attr_write(manager.cstate[i].attr[j], ONE);
 				free(sysfs_cstate);
@@ -222,6 +267,7 @@ cpu_manager_destroy(cpu_manager_t manager)
 	free(manager.scaling);
 	free(manager.cpufreq_current);
 	free(manager.cpufreq_governor);
+	free(manager.global_core_id);
 
 	for(i = 0; i < manager.present.size; i++)
 	{

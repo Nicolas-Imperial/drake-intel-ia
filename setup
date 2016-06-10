@@ -8,7 +8,7 @@ configure_sysfsutils()
 		echo mode devices/system/cpu/cpu$i/cpufreq/cpuinfo_cur_freq = 440
 		echo owner devices/system/cpu/cpu$i/cpufreq/cpuinfo_cur_freq = root:cpufreq
 		echo mode devices/system/cpu/cpu$i/cpufreq/scaling_setspeed = 664
-		echo owner devices/system/cpu/cpu0/cpufreq/scaling_setspeed = root:cpufreq
+		echo owner devices/system/cpu/cpu$i/cpufreq/scaling_setspeed = root:cpufreq
 
 		if [ "$i" != "0" ]
 		then
@@ -19,7 +19,7 @@ configure_sysfsutils()
 		echo mode devices/system/cpu/cpufreq/policy$i/scaling_governor = 664
 		echo owner devices/system/cpu/cpufreq/policy$i/scaling_governor = root:cpufreq
 
-		for j in `seq 0 $(( $(ls /sys/devices/system/cpu/cpu0/cpuidle/state | wc -l) - 1 ))`
+		for j in `seq 0 $(( $(ls -d /sys/devices/system/cpu/cpu$i/cpuidle/state* | wc -l) - 1 ))`
 		do
 			echo mode devices/system/cpu/cpu$i/cpuidle/state$j/disable = 664
 			echo owner devices/system/cpu/cpu$i/cpuidle/state$j/disable = root:cpuidle
@@ -48,7 +48,7 @@ configure_sudo()
 do_config()
 {
 	local USERNAME=$1
-	if [ "$UID" == "0" ]
+	if [ "$UID" != "0" ]
 	then
 		echo This script requires root priviledges. Please run as root or using sudo. >&2
 		exit 1
@@ -61,28 +61,36 @@ do_config()
 	add_group sysfs $USERNAME
 
 	## Generate sysfsutils configuration file
-	configure_sysfsutils > /etc/sysfs.d/50-drake.rules
+	configure_sysfsutils > /etc/sysfs.d/50-drake.conf
+	/etc/init.d/sysfsutils restart
 
 	## Generate password-less sudo privilege to restart sysfsutils
 	configure_sudo /etc/sudoers.d/drake
 }
 
-$USR=$1
+USR=$1
 
 if [ "$USR" == "" ]
 then
+	if [ "$UID" == "0" ]
+	then
+		echo Setting up privileges for superuser. You probably want to set up privileges for a normal user\; if so, please give its username as first argument and run this script again >&2
+	else
+		echo This requires superuser privileges. Trying with sudo. >&2
+	fi
 	sudo $0 $USER
 	exit $?
 else
 	if [ "$UID" != "0" ]
 	then
+		echo This requires superuser privileges. Trying with sudo. >&2
 		sudo $0 $USR
 		exit $?
 	else
 		do_config $USR
 		echo Configuration done.
 		echo You might need to logout and login again before all new settings take effect.
-		echo Don\'t forget to add options \"intel_idle.max_cstate=0 cpuidle_sysfs_switch=1\" to your kernel before using drake.
+		echo Don\'t forget to add options \"intel_idle.max_cstate=0 cpuidle_sysfs_switch=1 intel_pstate=disable\" to your kernel before using drake.
 	fi
 fi
 

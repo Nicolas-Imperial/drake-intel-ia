@@ -19,6 +19,7 @@
 #define debug_long(var) printf("[%s:%s:%d] %s = %ld\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 #define debug_size_t(var) printf("[%s:%s:%d] %s = %zu\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 #define debug_addr(var) printf("[%s:%s:%d] %s = %p\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
+#define debug_char(var) printf("[%s:%s:%d] %s = %c\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 
 #define SYSFS_BLOCK_SIZE 32
 
@@ -91,7 +92,7 @@ parse_simple_set(char* filename)
 				{
 					if(car == ',' || car == 10 || car == '\0')
 					{
-						set.member = realloc(set.member, set.size + 1);
+						set.member = realloc(set.member, sizeof(int) * (set.size + 1));
 						if(set.member == NULL)
 						{
 							error("Failed to reallocate memory");
@@ -134,7 +135,7 @@ parse_simple_set(char* filename)
 					if(car == ',' || car == 10 || car == '\0')
 					{
 						max = value;
-						set.member = realloc(set.member, set.size + (max - min + 1));
+						set.member = realloc(set.member, sizeof(int) * (set.size + (max - min + 1)));
 						if(set.member == NULL)
 						{
 							error("Failed to reallocate memory");
@@ -184,6 +185,7 @@ sysfs_attr_open_rw(char* device, char** values, size_t size)
 	// Check if everything went alright
 	if(attr->fd == -1)
 	{
+		fprintf(stderr, "file: %s\n", device);
 		perror("Error while opening sysfs device");
 		abort();
 	}
@@ -215,6 +217,7 @@ sysfs_attr_open_ro(char* device)
 	if(attr->fd == -1)
 	{
 		perror("Error while opening sysfs device");
+		fprintf(stderr, "file: %s\n", device);
 		abort();
 	}
 

@@ -132,6 +132,12 @@ drake_ia_thread(void* args)
 	drake_platform_t handler = init->handler;
 	posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_SHARED_SIZE);
 
+	cpu_set_t *cpu = CPU_ALLOC(handler->manager.online.size);
+	CPU_ZERO(cpu);
+	CPU_SET(handler->manager.global_core_id[core_id], cpu);
+	sched_setaffinity(0, handler->manager.online.size, cpu);
+	CPU_FREE(cpu);
+
 	// Wait for all cores to have their shared memory buffer allocated
 	pthread_barrier_wait(&handler->work_notify);
 	// Notify master thread that all threads are ready
@@ -223,12 +229,28 @@ drake_ia_thread(void* args)
 	return NULL;
 }
 
+void
+drake_platform_core_disable(drake_platform_t pt, size_t core)
+{
+	sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core]], ZERO);
+}
+
+void
+drake_platform_core_enabled(drake_platform_t pt, size_t core)
+{
+	// Caution: sysfs permission will not allow changing the cpuidle settings of this core anymore
+	sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core]], ONE);
+}
+
 #define hexdump(obj) { char *ptr = (char*)&obj; size_t i; printf("[%s:%s:%d:CORE %zu] %s : ", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #obj); for(i = 0; i < sizeof(obj); i++) { printf("%02X ", ptr[i]); } printf("\n"); } fflush(NULL)
 
 drake_platform_t
 drake_platform_init(void* obj)
 {
 	drake_platform_t stream = drake_platform_private_malloc(sizeof(struct drake_platform));
+
+	// Initialize hooks to cpufreq, cpuidle and hotplug, and switch off hyperthreading cores
+	stream->manager = cpu_manager_init();
 
 	// Parse arguments
 	char *config_mode = getenv("DRAKE_IA_CONFIG_ARGS");
@@ -246,6 +268,12 @@ drake_platform_init(void* obj)
 	}
 
 	core_size = args.size;
+	if(core_size != stream->manager.online.size)
+	{
+		fprintf(stderr, "Make sure you request as many cores as the platform provides. The schedule defines the number and the precise cores to be used\n");
+		cpu_manager_destroy(stream->manager);
+		abort();
+	}
 
 	drake_thread_init_t *init = malloc(sizeof(drake_thread_init_t) * core_size);
 
@@ -259,9 +287,6 @@ drake_platform_init(void* obj)
 	sem_init(&stream->report_ready, 0, 1);
 	sem_init(&stream->ready, 0, 0);
 	sem_init(&stream->new_order, 0, 0);
-
-	// Initialize hooks to cpufreq, cpuidle and hotplug, and switch off hyperthreading cores
-	stream->manager = cpu_manager_init();
 
 	size_t i;
 	for(i = 0; i < core_size; i++)
@@ -517,18 +542,18 @@ drake_platform_set_voltage(float voltage /* in volts */)
 int
 drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in index of frequency set */)
 {
-	sysfs_attr_write_buffer(stream->manager.scaling[drake_platform_core_id()], stream->manager.freq[drake_platform_core_id()][stream->manager.nb_freq[drake_platform_core_id()] - freq - 1], 8);
+	sysfs_attr_write_buffer(stream->manager.scaling[stream->manager.global_core_id[drake_platform_core_id()]], stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()]][stream->manager.nb_freq[drake_platform_core_id()] - freq - 1], 8);
 	return 1;
 }
 
 size_t
 drake_platform_get_frequency(drake_platform_t stream) /* in index of frequency set */
 {
-	sysfs_attr_read(stream->manager.cpufreq_current[drake_platform_core_id()], (char*)&stream->read_freq, 8);
+	sysfs_attr_read(stream->manager.cpufreq_current[stream->manager.global_core_id[drake_platform_core_id()]], (char*)&stream->read_freq, 8);
 	size_t i;
-	for(i = 0; i < stream->manager.nb_freq[drake_platform_core_id()]; i++)
+	for(i = 0; i < stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()]]; i++)
 	{
-		if(stream->read_freq == *(uint64_t*)stream->manager.freq[drake_platform_core_id()][i])
+		if(stream->read_freq == *(uint64_t*)stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()]][i])
 		{
 			break;
 		}
