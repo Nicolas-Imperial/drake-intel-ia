@@ -13,6 +13,12 @@ struct cstate
 };
 typedef struct cstate cstate_t;
 
+struct cpuid
+{
+	size_t vid, rid;
+};
+typedef struct cpuid cpuid_t;
+
 struct cpu_manager
 {
 	simple_set_t present, online;
@@ -20,7 +26,7 @@ struct cpu_manager
 	cstate_t *cstate;
 	char ***freq;
 	size_t *nb_freq;
-	size_t *global_core_id;
+	cpuid_t *global_core_id;
 };
 
 typedef struct cpu_manager cpu_manager_t;

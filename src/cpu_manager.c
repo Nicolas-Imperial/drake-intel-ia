@@ -26,6 +26,16 @@ char *zeroone_str[2] = { "0\n", "1\n" };
 char *cpuidle_governor_str[2] = { "ladder\n", "menu\n" };
 char *cpufreq_governor_str[2] = { "ondemand\n", "userspace\n" };
 
+static
+int 
+compare_cpuid(const void *a, const void *b)
+{
+	cpuid_t *aa = (cpuid_t*)a;
+	cpuid_t *bb = (cpuid_t*)b;
+
+	return aa->rid - bb->rid;
+}
+
 cpu_manager_t
 cpu_manager_init()
 {
@@ -106,7 +116,7 @@ cpu_manager_init()
 	manager.cpufreq_governor = malloc(sizeof(sysfs_attr_tp) * (manager.online.size));
 	manager.freq = malloc(sizeof(char **) * (manager.online.size));
 	manager.nb_freq = malloc(sizeof(size_t) * (manager.online.size));
-	manager.global_core_id = malloc(sizeof(size_t) * (manager.online.size));
+	manager.global_core_id = malloc(sizeof(cpuid_t) * (manager.online.size));
 	for(i = 0; i < manager.online.size; i++)
 	{
 		char *sysfs_cpufreq_governor = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_GOVERNOR_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
@@ -175,13 +185,10 @@ cpu_manager_init()
 		free(sysfs_package_id_device);
 
 		size_t id = core_id + package_id * (max_core_id + 1);
-		if(id >= manager.online.size)
-		{
-			fprintf(stderr, "This platform is composed of physical processors that each include different amounts of cores\n. This Intel-ia backend for Drake backend doesn't support this scheme.\n");
-			abort();
-		}
-		manager.global_core_id[id] = i;
+		manager.global_core_id[i].rid = id;
+		manager.global_core_id[i].vid = i;
 	}
+	qsort(manager.global_core_id, manager.online.size, sizeof(cpuid_t), compare_cpuid);
 
 #define SYSFS_CSTATE_PATTERN_PART1 "devices/system/cpu/cpu%d/cpuidle"
 #define SYSFS_CSTATE_PATTERN_PART2 "state%u/disable"

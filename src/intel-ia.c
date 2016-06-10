@@ -133,8 +133,8 @@ drake_ia_thread(void* args)
 	posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_SHARED_SIZE);
 
 	cpu_set_t *cpu = CPU_ALLOC(handler->manager.online.size);
-	CPU_ZERO(cpu);
-	CPU_SET(handler->manager.global_core_id[core_id], cpu);
+	CPU_ZERO_S(CPU_ALLOC_SIZE(handler->manager.online.size), cpu);
+	CPU_SET_S(handler->manager.global_core_id[core_id].vid, CPU_ALLOC_SIZE(handler->manager.online.size), cpu);
 	sched_setaffinity(0, handler->manager.online.size, cpu);
 	CPU_FREE(cpu);
 
@@ -232,14 +232,14 @@ drake_ia_thread(void* args)
 void
 drake_platform_core_disable(drake_platform_t pt, size_t core)
 {
-	sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core]], ZERO);
+	sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ZERO);
 }
 
 void
 drake_platform_core_enabled(drake_platform_t pt, size_t core)
 {
 	// Caution: sysfs permission will not allow changing the cpuidle settings of this core anymore
-	sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core]], ONE);
+	//sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ONE);
 }
 
 #define hexdump(obj) { char *ptr = (char*)&obj; size_t i; printf("[%s:%s:%d:CORE %zu] %s : ", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #obj); for(i = 0; i < sizeof(obj); i++) { printf("%02X ", ptr[i]); } printf("\n"); } fflush(NULL)
@@ -542,18 +542,18 @@ drake_platform_set_voltage(float voltage /* in volts */)
 int
 drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in index of frequency set */)
 {
-	sysfs_attr_write_buffer(stream->manager.scaling[stream->manager.global_core_id[drake_platform_core_id()]], stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()]][stream->manager.nb_freq[drake_platform_core_id()] - freq - 1], 8);
+	sysfs_attr_write_buffer(stream->manager.scaling[stream->manager.global_core_id[drake_platform_core_id()].vid], stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()].vid][stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()].vid] - freq - 1], 8);
 	return 1;
 }
 
 size_t
 drake_platform_get_frequency(drake_platform_t stream) /* in index of frequency set */
 {
-	sysfs_attr_read(stream->manager.cpufreq_current[stream->manager.global_core_id[drake_platform_core_id()]], (char*)&stream->read_freq, 8);
+	sysfs_attr_read(stream->manager.cpufreq_current[stream->manager.global_core_id[drake_platform_core_id()].vid], (char*)&stream->read_freq, 8);
 	size_t i;
-	for(i = 0; i < stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()]]; i++)
+	for(i = 0; i < stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()].vid]; i++)
 	{
-		if(stream->read_freq == *(uint64_t*)stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()]][i])
+		if(stream->read_freq == *(uint64_t*)stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()].vid][i])
 		{
 			break;
 		}
