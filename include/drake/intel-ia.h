@@ -3,7 +3,7 @@
 
 struct ia_arguments
 {
-	size_t size;
+	int poll_at_idle, wait_after_scaling;
 };
 typedef struct ia_arguments ia_arguments_t;
 

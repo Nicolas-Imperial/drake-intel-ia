@@ -25,7 +25,7 @@
 STORE_SIZE = 65536
 
 ## Package configuration
-CONFIG = release
+CONFIG = RELEASE
 
 ## C global parameters
 CFLAGS_BASE = 
@@ -38,8 +38,8 @@ CC_DEPS =
 CC_PKG = 
 CC_LIBS = 
 CC_TEST_PKG = $(CC_PKG)
-CC_TEST_LIBS = $(CC_LIBS) -lunitc -lrt 
-CC_TEST_DEPS = $(CC_DEPS) libunitc+.a
+CC_TEST_LIBS = $(CC_LIBS)
+CC_TEST_DEPS = $(CC_DEPS)
 CC_TEST_LDFLAGS = -L.
 
 ## C++ global parameters
@@ -53,8 +53,8 @@ CXX_DEPS =
 CXX_PKG = 
 CXX_LIBS = -lrt
 CXX_TEST_PKG = $(CXX_PKG)
-CXX_TEST_LIBS = $(CXX_LIBS) -lunitc++ 
-CXX_TEST_DEPS = $(CXX_DEPS) libunitc++.a
+CXX_TEST_LIBS = $(CXX_LIBS) 
+CXX_TEST_DEPS = $(CXX_DEPS)
 CXX_TEST_LDFLAGS = -L.
 
 ## List of (pkg-config) packages this project depends on
@@ -156,8 +156,8 @@ lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_
 lib_drake-intel-ia_libs = -lrt
 lib_drake-intel-ia_ldflags = -pthread
 lib_drake-intel-ia_cxxflags = 
-lib_drake-intel-ia_pkg = drake pelib-core
-lib_drake-intel-ia_pkg_requires = drake pelib-core
+lib_drake-intel-ia_pkg = drake pelib-core rapl
+lib_drake-intel-ia_pkg_requires = drake pelib-core rapl
 lib_drake-intel-ia_pkg_libs = -pthread
 lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
 lib_drake-intel-ia_cflags_intel-ia.c = -D_GNU_SOURCE
@@ -170,7 +170,7 @@ shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-
 shared_drake-intel-ia_libs = -lrt 
 shared_drake-intel-ia_ldflags = -pthread
 shared_drake-intel-ia_cflags = -fPIC
-shared_drake-intel-ia_pkg = drake pelib-core
+shared_drake-intel-ia_pkg = drake pelib-core rapl
 shared_drake-intel-ia_pkg_requires = drake pelib-core
 shared_drake-intel-ia_pkg_libs = -pthread
 shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)

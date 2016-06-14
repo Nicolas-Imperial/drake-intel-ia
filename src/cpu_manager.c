@@ -28,7 +28,7 @@ char *cpufreq_governor_str[2] = { "ondemand\n", "userspace\n" };
 
 static
 int 
-compare_cpuid(const void *a, const void *b)
+cpuid_by_rid(const void *a, const void *b)
 {
 	cpuid_t *aa = (cpuid_t*)a;
 	cpuid_t *bb = (cpuid_t*)b;
@@ -36,8 +36,18 @@ compare_cpuid(const void *a, const void *b)
 	return aa->rid - bb->rid;
 }
 
+static
+int 
+cpuid_by_vid(const void *a, const void *b)
+{
+	cpuid_t *aa = (cpuid_t*)a;
+	cpuid_t *bb = (cpuid_t*)b;
+
+	return aa->vid - bb->vid;
+}
+
 cpu_manager_t
-cpu_manager_init()
+cpu_manager_init(int poll_at_idle)
 {
 	size_t i;
 	cpu_manager_t manager;
@@ -64,6 +74,7 @@ cpu_manager_init()
 #define SYSFS_CORE_ID_DEVICE_PATTERN "devices/system/cpu/cpu%zu/topology/core_id"
 #define SYSFS_PACKAGE_ID_DEVICE_PATTERN "devices/system/cpu/cpu%zu/topology/physical_package_id"
 	int max_core_id = 0;
+/*
 	for(i = 0; i < manager.present.size; i++)
 	{
 		if(max_core_id < manager.present.member[i])
@@ -71,6 +82,7 @@ cpu_manager_init()
 			max_core_id = manager.present.member[i];
 		}
 	}
+*/
 	int active = 0;
 
 	// Deactivate hyperthreading cores
@@ -92,6 +104,31 @@ cpu_manager_init()
 		size_t package_id = atoi(package_id_str);
 		sysfs_attr_close(sysfs_package_id_attr);
 		free(sysfs_package_id_device);
+
+		if(max_core_id < core_id)
+		{
+			max_core_id = core_id;
+		}
+	}
+
+	for(i = 0; i < manager.present.size; i++)
+	{
+		char *sysfs_core_id_device = malloc(sizeof(char) * (strlen(SYSFS_CORE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+		sprintf(sysfs_core_id_device, SYSFS_CORE_ID_DEVICE_PATTERN, i);
+		sysfs_attr_tp sysfs_core_id_attr = sysfs_attr_open_ro(sysfs_core_id_device);
+		char *core_id_str = sysfs_attr_read_alloc(sysfs_core_id_attr);
+		size_t core_id = atoi(core_id_str);
+		sysfs_attr_close(sysfs_core_id_attr);
+		free(sysfs_core_id_device);
+
+		char *sysfs_package_id_device = malloc(sizeof(char) * (strlen(SYSFS_PACKAGE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
+		sprintf(sysfs_package_id_device, SYSFS_PACKAGE_ID_DEVICE_PATTERN, i);
+		sysfs_attr_tp sysfs_package_id_attr = sysfs_attr_open_ro(sysfs_package_id_device);
+		char *package_id_str = sysfs_attr_read_alloc(sysfs_package_id_attr);
+		size_t package_id = atoi(package_id_str);
+		sysfs_attr_close(sysfs_package_id_attr);
+		free(sysfs_package_id_device);
+
 		size_t id = core_id + package_id * (max_core_id + 1);
 
 		if(((active >> id) & 1) == 0)
@@ -110,13 +147,16 @@ cpu_manager_init()
 #define SYSFS_SCALING_PATTERN "devices/system/cpu/cpu%d/cpufreq/scaling_setspeed"
 #define SYSFS_FREQ_PATTERN "devices/system/cpu/cpu%d/cpufreq/scaling_available_frequencies"
 #define SYSFS_CPUFREQ_CURRENT_PATTERN "devices/system/cpu/cpufreq/policy%d/cpuinfo_cur_freq"
+#define SYSFS_LATENCY_PATTERN "devices/system/cpu/cpufreq/policy%d/cpuinfo_transition_latency"
 #define SYSFS_CPUFREQ_GOVERNOR_PATTERN "devices/system/cpu/cpu%d/cpufreq/scaling_governor"
 	manager.scaling = malloc(sizeof(sysfs_attr_tp) * (manager.online.size));
 	manager.cpufreq_current = malloc(sizeof(sysfs_attr_tp) * (manager.online.size));
 	manager.cpufreq_governor = malloc(sizeof(sysfs_attr_tp) * (manager.online.size));
+	manager.cpufreq_latency = malloc(sizeof(int) * (manager.online.size));
 	manager.freq = malloc(sizeof(char **) * (manager.online.size));
 	manager.nb_freq = malloc(sizeof(size_t) * (manager.online.size));
 	manager.global_core_id = malloc(sizeof(cpuid_t) * (manager.online.size));
+	manager.rglobal_core_id = malloc(sizeof(cpuid_t) * (manager.online.size));
 	for(i = 0; i < manager.online.size; i++)
 	{
 		char *sysfs_cpufreq_governor = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_GOVERNOR_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
@@ -161,6 +201,15 @@ cpu_manager_init()
 		//sysfs_attr_write(manager.scaling[i], 0);
 		free(sysfs_scaling);
 
+		char *sysfs_latency = malloc(sizeof(char) * (strlen(SYSFS_LATENCY_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
+		sprintf(sysfs_latency, SYSFS_LATENCY_PATTERN, manager.online.member[i]);
+		sysfs_attr_tp latency_attr = sysfs_attr_open_ro(sysfs_latency);
+		char *latency_str = sysfs_attr_read_alloc(latency_attr);
+		manager.cpufreq_latency[i] = atoi(latency_str);
+		free(sysfs_latency);
+		free(latency_str);
+		sysfs_attr_close(latency_attr);
+
 		char *sysfs_cpufreq_current = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_CURRENT_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
 		sprintf(sysfs_cpufreq_current, SYSFS_CPUFREQ_CURRENT_PATTERN, manager.online.member[i]);
 		manager.cpufreq_current[i] = sysfs_attr_open_ro(sysfs_cpufreq_current);
@@ -188,7 +237,9 @@ cpu_manager_init()
 		manager.global_core_id[i].rid = id;
 		manager.global_core_id[i].vid = i;
 	}
-	qsort(manager.global_core_id, manager.online.size, sizeof(cpuid_t), compare_cpuid);
+	qsort(manager.global_core_id, manager.online.size, sizeof(cpuid_t), cpuid_by_rid);
+	memcpy(manager.rglobal_core_id, manager.global_core_id, sizeof(cpuid_t) * manager.online.size);
+	qsort(manager.rglobal_core_id, manager.online.size, sizeof(cpuid_t), cpuid_by_vid);
 
 #define SYSFS_CSTATE_PATTERN_PART1 "devices/system/cpu/cpu%d/cpuidle"
 #define SYSFS_CSTATE_PATTERN_PART2 "state%u/disable"
@@ -229,7 +280,10 @@ cpu_manager_init()
 				sprintf(sysfs_cstate, SYSFS_CSTATE_PATTERN_PART1, manager.online.member[i]);
 				sprintf(sysfs_cstate + strlen(SYSFS_CSTATE_PATTERN_PART1) - 2 + (unsigned int)(i == 0 ? 1 : floor(log10(i)) + 1), "/" SYSFS_CSTATE_PATTERN_PART2, manager.cstate[i].state[j]);
 				manager.cstate[i].attr[j] = sysfs_attr_open_rw(sysfs_cstate, zeroone_str, 2);
-				sysfs_attr_write(manager.cstate[i].attr[j], ONE);
+				if(poll_at_idle != 0)
+				{
+					sysfs_attr_write(manager.cstate[i].attr[j], ONE);
+				}
 				free(sysfs_cstate);
 			}
 		}
@@ -252,30 +306,7 @@ cpu_manager_destroy(cpu_manager_t manager)
 	//sysfs_attr_write(cpuidle_governor, CPUIDLE_LADDER);
 	//sysfs_attr_close(cpuidle_governor);
 
-	// Teardown
-	for(i = 0; i < manager.online.size; i++)
-	{
-		sysfs_attr_close(manager.scaling[i]);
-
-		sysfs_attr_write(manager.cpufreq_governor[i], CPUFREQ_ONDEMAND);
-		sysfs_attr_close(manager.cpufreq_governor[i]);
-		size_t j;
-		for(j = 0; j < manager.cstate[i].nb_states; j++)
-		{
-			sysfs_attr_write(manager.cstate[i].attr[j], ZERO);
-			sysfs_attr_close(manager.cstate[i].attr[j]);
-		}
-
-		free(manager.freq[i]);
-	}
-	free(manager.freq);
-	free(manager.nb_freq);
-	free(manager.cstate);
-	free(manager.scaling);
-	free(manager.cpufreq_current);
-	free(manager.cpufreq_governor);
-	free(manager.global_core_id);
-
+	// Switch on all cores
 	for(i = 0; i < manager.present.size; i++)
 	{
 		if(manager.present.member[i] != 0)
@@ -285,6 +316,32 @@ cpu_manager_destroy(cpu_manager_t manager)
 		}
 	}
 
+	for(i = 0; i < manager.online.size; i++)
+	{
+		sysfs_attr_close(manager.scaling[i]);
+
+		sysfs_attr_write(manager.cpufreq_governor[i], CPUFREQ_ONDEMAND);
+		sysfs_attr_close(manager.cpufreq_governor[i]);
+
+		size_t j;
+		for(j = 0; j < manager.cstate[i].nb_states; j++)
+		{
+			sysfs_attr_write(manager.cstate[i].attr[j], ZERO);
+			sysfs_attr_close(manager.cstate[i].attr[j]);
+		}
+
+		free(manager.freq[i]);
+	}
+
+	free(manager.freq);
+	free(manager.nb_freq);
+	free(manager.cstate);
+	free(manager.scaling);
+	free(manager.cpufreq_current);
+	free(manager.cpufreq_governor);
+	free(manager.global_core_id);
+	free(manager.rglobal_core_id);
+	free(manager.cpufreq_latency);
 	free(manager.hotplug);
 }
 

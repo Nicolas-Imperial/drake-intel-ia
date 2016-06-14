@@ -33,6 +33,8 @@
 #include <string.h>
 #include <stdint.h>
 #include <sched.h>
+#include <unistd.h>
+#include <rapl.h>
 
 #include "sysfs.h"
 #include "cpu_manager.h"
@@ -48,6 +50,7 @@
 #define debug(var) printf("[%s:%s:%d:CORE %zu] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_addr(var) printf("[%s:%s:%d:CORE %zu] %s = \"%p\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_int(var) printf("[%s:%s:%d:CORE %zu] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_double(var) printf("[%s:%s:%d:CORE %zu] %s = \"%lf\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #define debug_size_t(var) printf("[%s:%s:%d:CORE %zu] %s = \"%zu\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #else
 #define debug(var)
@@ -90,6 +93,7 @@ struct drake_platform
 	sem_t new_order;
 	cpu_manager_t manager;
 	uint64_t read_freq;
+	int wait_after_scaling;
 };
 typedef struct drake_platform *drake_platform_t;
 
@@ -104,16 +108,19 @@ ia_arguments_t
 parse_ia_arguments(size_t argc, char **argv)
 {
 	ia_arguments_t args;
+	args.poll_at_idle = 0;
+	args.wait_after_scaling = 1;
 
 	for(; argv[0] != NULL; argv++)
 	{
-		if(strcmp(argv[0], "--size") == 0)
+		if(strcmp(argv[0], "--poll-at-idle") == 0)
 		{
-			argv++;
-			if(argv[0] != NULL)
-			{
-				args.size = atoi(argv[0]);
-			}
+			args.poll_at_idle = 1;
+			continue;
+		}
+		if(strcmp(argv[0], "--no-wait-after-scaling") == 0)
+		{
+			args.wait_after_scaling = 0;
 			continue;
 		}
 	}
@@ -130,7 +137,11 @@ drake_ia_thread(void* args)
 	drake_thread_init_t *init = (drake_thread_init_t*)args;
 	core_id = init->id;
 	drake_platform_t handler = init->handler;
-	posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_SHARED_SIZE);
+	if(posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_SHARED_SIZE) != 0)
+	{
+		fprintf(stderr, "[%s:%d] Could not allocate communication memory. Aborting", __FILE__, __LINE__);
+		abort();
+	}
 
 	cpu_set_t *cpu = CPU_ALLOC(handler->manager.online.size);
 	CPU_ZERO_S(CPU_ALLOC_SIZE(handler->manager.online.size), cpu);
@@ -232,14 +243,36 @@ drake_ia_thread(void* args)
 void
 drake_platform_core_disable(drake_platform_t pt, size_t core)
 {
-	sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ZERO);
+	if(core > 0)
+	{
+		sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ZERO);
+	}
+	else
+	{
+		size_t i;
+		for(i = 0; i < pt->manager.cstate[0].nb_states; i++)
+		{
+			sysfs_attr_write(pt->manager.cstate[0].attr[i], ZERO);
+		}
+	}
 }
 
 void
-drake_platform_core_enabled(drake_platform_t pt, size_t core)
+drake_platform_core_enable(drake_platform_t pt, size_t core)
 {
-	// Caution: sysfs permission will not allow changing the cpuidle settings of this core anymore
-	//sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ONE);
+	if(core > 0)
+	{
+		// Caution: sysfs permission will not allow changing the cpuidle settings of this core anymore
+		sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ONE);
+	}
+	else
+	{
+		size_t i;
+		for(i = 0; i < pt->manager.cstate[0].nb_states; i++)
+		{
+			sysfs_attr_write(pt->manager.cstate[0].attr[i], ZERO);
+		}
+	}
 }
 
 #define hexdump(obj) { char *ptr = (char*)&obj; size_t i; printf("[%s:%s:%d:CORE %zu] %s : ", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #obj); for(i = 0; i < sizeof(obj); i++) { printf("%02X ", ptr[i]); } printf("\n"); } fflush(NULL)
@@ -249,8 +282,6 @@ drake_platform_init(void* obj)
 {
 	drake_platform_t stream = drake_platform_private_malloc(sizeof(struct drake_platform));
 
-	// Initialize hooks to cpufreq, cpuidle and hotplug, and switch off hyperthreading cores
-	stream->manager = cpu_manager_init();
 
 	// Parse arguments
 	char *config_mode = getenv("DRAKE_IA_CONFIG_ARGS");
@@ -267,14 +298,11 @@ drake_platform_init(void* obj)
 		args = parse_ia_arguments(str_args->argc, str_args->argv);
 	}
 
-	core_size = args.size;
-	if(core_size != stream->manager.online.size)
-	{
-		fprintf(stderr, "Make sure you request as many cores as the platform provides. The schedule defines the number and the precise cores to be used\n");
-		cpu_manager_destroy(stream->manager);
-		abort();
-	}
+	// Initialize hooks to cpufreq, cpuidle and hotplug, and switch off hyperthreading cores
+	stream->manager = cpu_manager_init(args.poll_at_idle);
+	stream->wait_after_scaling = args.wait_after_scaling;
 
+	core_size = stream->manager.online.size;
 	drake_thread_init_t *init = malloc(sizeof(drake_thread_init_t) * core_size);
 
 	shared_buffer = malloc(sizeof(void*) * core_size);
@@ -543,6 +571,11 @@ int
 drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in index of frequency set */)
 {
 	sysfs_attr_write_buffer(stream->manager.scaling[stream->manager.global_core_id[drake_platform_core_id()].vid], stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()].vid][stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()].vid] - freq - 1], 8);
+	if(stream->wait_after_scaling != 0)
+	{
+		usleep(stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid]);
+	}
+
 	return 1;
 }
 
@@ -612,10 +645,13 @@ int drake_platform_sleep(drake_time_t period)
 
 	drake_platform_time_get(now_p);
 	until_p->time = now_p->time + period->time;
+	usleep(period->time * 1e3);
+	/*
 	while(!drake_platform_time_greater(now_p, until_p))
 	{
 		drake_platform_time_get(now_p);
 	}
+	*/
 
 	return 1;
 }
@@ -639,38 +675,238 @@ drake_platform_time_destroy(drake_time_t time)
 }
 
 struct drake_power {
-	double *power_chip, *power_core, *power_mc, *time;
+	double *power_chip, *power_core, *power_mc;
+	struct drake_time *time;
 	size_t max_samples;
 	size_t collected;
 	sem_t run;
 	int running;
 	int measurement;
 	pthread_t thread;
+	drake_platform_t pt;
 };
 typedef struct drake_power *drake_power_t;
+
+#define RAW_RAPL 0
+#if RAW_RAPL
+static
+double
+get_rapl_energy_info(uint64_t power_domain, uint64_t node)
+{
+    int          err;
+    double       total_energy_consumed;
+
+    switch (power_domain) {
+    case PKG:
+        err = get_pkg_total_energy_consumed(node, &total_energy_consumed);
+        break;
+    case PP0:
+        err = get_pp0_total_energy_consumed(node, &total_energy_consumed);
+        break;
+    case PP1:
+        err = get_pp1_total_energy_consumed(node, &total_energy_consumed);
+        break;
+    case DRAM:
+        err = get_dram_total_energy_consumed(node, &total_energy_consumed);
+        break;
+    default:
+        err = MY_ERROR;
+        break;
+    }
+
+    return total_energy_consumed;
+}
+#endif
+
+static
+int
+read_power(uint64_t node, int measurement, double *chip, double *core, double *mc)
+{
+	int          err = 0;
+	double       total_energy_consumed;
+
+	*chip = 0;
+	if(measurement & (1 << DRAKE_POWER_CHIP))
+	{
+		double pkg = 0;
+		if(is_supported_domain(PKG))
+		{
+			err += get_pkg_total_energy_consumed(node, &pkg);
+		}
+		else
+		{
+			err += 1;
+		}
+		// Apparently, PP1 is graphics (https://software.intel.com/en-us/forums/software-tuning-performance-optimization-platform-monitoring/topic/557622) so better not read it
+		//err += get_pp1_total_energy_consumed(node, &pp1);
+		*chip = pkg;
+	}
+
+	// Per core measurement is not supported
+	*core = 0;
+	if(measurement & (1 << DRAKE_POWER_CORE))
+	{
+		// Report an error
+		err += 1;
+		// Do nothing
+	}
+	
+	*mc = 0;
+	if(measurement & (1 << DRAKE_POWER_MEMORY_CONTROLLER))
+	{
+		if(is_supported_domain(DRAM))
+		{
+			err += get_dram_total_energy_consumed(node, mc);
+		}
+		else
+		{
+			err += 1;
+		}
+	}
+
+	return err;
+}
 
 void*
 measure_power(void* arg)
 {
+	int i;
+	int domain = 0;
+	drake_power_t tracker = (drake_power_t)arg;
+	uint64_t num_pkg, num_core_per_pkg;
+	APIC_ID_t **pkg_map;
+	tracker->power_chip[0] = 0;
+
+	// Initialize stuff
+	if (0 != init_rapl())
+	{
+		fprintf(stdout, "RAPL initialization failed!\n");
+		terminate_rapl();
+		abort();
+	}
+	int num_node = get_num_rapl_nodes_pkg();
+	pkg_map = rapl_get_topology(&num_pkg, &num_core_per_pkg);
+
+	sem_wait(&tracker->run);
+	tracker->power_chip[0] = 0;
+
+	// Wake up monitoring cores, in case drake switched them off
+	
+	double begin_chip = 0, begin_core = 0, begin_mc = 0;
+	double end_chip = 0, end_core = 0, end_mc = 0;
+    	double begin[num_node][RAPL_NR_DOMAIN];
+    	double end[num_node][RAPL_NR_DOMAIN];
+	// Begin measurement: Copy-pasted from RAPL cpu_power library
+	/* Read initial values */
+	for (i = 0; i < num_node && 1; i++)
+	{
+		// Switch on measurement core, if necessary
+		uint64_t os_id = pkg_map[i][0].os_id;
+		int pkg_off;
+		double chip, core, mc;
+		if(os_id > 0)
+		{
+			char *str = sysfs_attr_read_alloc(tracker->pt->manager.hotplug[os_id]);
+			pkg_off = (strcmp(str, "0\n") == 0);
+			sysfs_attr_write(tracker->pt->manager.hotplug[os_id], ONE);
+		}
+		// Start measurement
+#if RAW_RAPL
+		for (domain = 0; domain < RAPL_NR_DOMAIN; ++domain)
+		{
+			if(is_supported_domain(domain))
+			{
+				begin[i][domain] = get_rapl_energy_info(domain, i);
+			}
+		}
+#endif
+		read_power(i, tracker->measurement, &chip, &core, &mc);
+		begin_chip += chip;
+		begin_core += core;
+		begin_mc += mc;
+
+		// Switch of measurement core if not used by drake
+		if(os_id > 0 && pkg_off)
+		{
+			sysfs_attr_write(tracker->pt->manager.hotplug[os_id], ZERO);
+		}
+	}
+	drake_platform_time_get(&tracker->time[0]);
+
+	sem_wait(&tracker->run);
+	tracker->power_chip[0] = 0;
+
+	// Wake up threads used by rapl for measurements
+	for(i = 0; i < num_pkg; i++)
+	{
+		uint64_t os_id = pkg_map[i][0].os_id;
+		if(os_id > 0)
+		{	
+			sysfs_attr_write(tracker->pt->manager.hotplug[os_id], ONE);
+		}
+	}
+
+	// Stop measurement
+	for (i = 0; i < num_node && 1; i++)
+	{
+		double chip, core, mc;
+#if RAW_RAPL
+		for (domain = 0; domain < RAPL_NR_DOMAIN; ++domain)
+		{
+	        	if(is_supported_domain(domain))
+			{
+        			end[i][domain] = get_rapl_energy_info(domain, i);
+			}
+		}
+#endif
+		read_power(i, tracker->measurement, &chip, &core, &mc);
+		end_chip += chip;
+		end_core += core;
+		end_mc += mc;
+	}
+	drake_platform_time_get(&tracker->time[1]);
+	tracker->collected = 2;
+
+	tracker->power_chip[0] = tracker->power_chip[1] = (end_chip - begin_chip) / ((tracker->time[1].time - tracker->time[0].time) / 1000);
+	tracker->power_core[0] = tracker->power_core[1] = (end_core - begin_core) / ((tracker->time[1].time - tracker->time[0].time) / 1000);
+	tracker->power_mc[0] = tracker->power_mc[1] = (end_mc - begin_mc) / ((tracker->time[1].time - tracker->time[0].time) / 1000);
+
+#if RAW_RAPL
+	// Show measurement output
+	for (i = 0; i < num_node && 1; i++)
+	{
+		for (domain = 0; domain < RAPL_NR_DOMAIN; ++domain)
+		{
+			if(is_supported_domain(domain))
+			{
+				printf("Energy spent: %lf\n", end[i][domain] - begin[i][domain]);
+			}
+		}
+	}
+#endif
+
 	return NULL;
 }
 
 drake_power_t
-drake_platform_power_init(size_t samples, int measurement)
+drake_platform_power_init(drake_platform_t str, size_t samples, int measurement)
 {
 	drake_power_t tracker = malloc(sizeof(struct drake_power));
-	tracker->power_chip = malloc(sizeof(double) * samples);
-	tracker->power_mc = malloc(sizeof(double) * samples);
-	tracker->power_core = malloc(sizeof(double) * samples);
-	tracker->time = malloc(sizeof(double) * samples);
-	double *stuff = malloc(sizeof(double) * samples);
-	tracker->max_samples = samples;
+	tracker->power_chip = malloc(sizeof(double) * 2);
+	tracker->power_mc = malloc(sizeof(double) * 2);
+	tracker->power_core = malloc(sizeof(double) * 2);
+	tracker->time = malloc(sizeof(struct drake_time) * 2);
+	tracker->max_samples = 2;
 	tracker->collected = 0;
 	tracker->running = 0;
 	tracker->measurement = measurement;
+	tracker->pt = str;
+	tracker->power_chip[0] = 0;
 
 	sem_init(&tracker->run, 0, 0);
+	tracker->power_chip[0] = 0;
 	int retval = pthread_create(&(tracker->thread), NULL, measure_power, tracker);
+	tracker->power_chip[0] = 0;
 	if(retval != 0)
 	{
 		free(tracker->power_core);
@@ -716,7 +952,7 @@ drake_platform_power_printf_line_cumulate(FILE* stream, drake_power_t tracker, s
 		line += tracker->power_core[i];
 	}
 
-	fprintf(stream, "%f%s%f", tracker->time[i], separator, line);
+	fprintf(stream, "%lf%s%f", tracker->time[i].time, separator, line);
 	return stream;
 }
 
@@ -740,7 +976,7 @@ drake_platform_power_printf_line(FILE* stream, drake_power_t tracker, size_t i, 
 		separator = " ";
 	}
 
-	fprintf(stream, "%f%s", tracker->time[i], separator);
+	fprintf(stream, "%lf%s", tracker->time[i].time, separator);
 	if(tracker->measurement & (1 << DRAKE_POWER_CHIP) != 0)
 	{
 		fprintf(stream, "%f", tracker->power_chip[i]);

@@ -26,7 +26,8 @@ struct cpu_manager
 	cstate_t *cstate;
 	char ***freq;
 	size_t *nb_freq;
-	cpuid_t *global_core_id;
+	cpuid_t *global_core_id, *rglobal_core_id;
+	int *cpufreq_latency;
 };
 
 typedef struct cpu_manager cpu_manager_t;
