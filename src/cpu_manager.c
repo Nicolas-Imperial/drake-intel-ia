@@ -13,6 +13,8 @@
 #include <time.h>
 #include <stdint.h>
 
+#if MANAGE_CPU
+
 #include "sysfs.h"
 #include "cpu_manager.h"
 
@@ -137,7 +139,9 @@ cpu_manager_init(int poll_at_idle)
 		}
 		else
 		{
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
 			sysfs_attr_write(manager.hotplug[i], ZERO);
+#endif
 		}
 	}
 
@@ -195,12 +199,6 @@ cpu_manager_init(int poll_at_idle)
 		sysfs_attr_close(freq);
 		free(sysfs_freq);
 
-		char *sysfs_scaling = malloc(sizeof(char) * (strlen(SYSFS_SCALING_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
-		sprintf(sysfs_scaling, SYSFS_SCALING_PATTERN, manager.online.member[i]);
-		manager.scaling[i] = sysfs_attr_open_rw(sysfs_scaling, manager.freq[i], manager.nb_freq[i]);
-		//sysfs_attr_write(manager.scaling[i], 0);
-		free(sysfs_scaling);
-
 		char *sysfs_latency = malloc(sizeof(char) * (strlen(SYSFS_LATENCY_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
 		sprintf(sysfs_latency, SYSFS_LATENCY_PATTERN, manager.online.member[i]);
 		sysfs_attr_tp latency_attr = sysfs_attr_open_ro(sysfs_latency);
@@ -209,6 +207,15 @@ cpu_manager_init(int poll_at_idle)
 		free(sysfs_latency);
 		free(latency_str);
 		sysfs_attr_close(latency_attr);
+
+		char *sysfs_scaling = malloc(sizeof(char) * (strlen(SYSFS_SCALING_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
+		sprintf(sysfs_scaling, SYSFS_SCALING_PATTERN, manager.online.member[i]);
+		manager.scaling[i] = sysfs_attr_open_rw(sysfs_scaling, manager.freq[i], manager.nb_freq[i]);
+		//sysfs_attr_write(manager.scaling[i], 0);
+		//sysfs_attr_write_str(manager.scaling[i], "2401000\n");
+		//sysfs_attr_write_buffer(manager.scaling[i], manager.freq[i][0], 8);
+		usleep(manager.cpufreq_latency[i]);
+		free(sysfs_scaling);
 
 		char *sysfs_cpufreq_current = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_CURRENT_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
 		sprintf(sysfs_cpufreq_current, SYSFS_CPUFREQ_CURRENT_PATTERN, manager.online.member[i]);
@@ -350,4 +357,6 @@ cpu_manager_set_frequency(cpu_manager_t manager, size_t core, char *freq)
 {
 	sysfs_attr_write_str(manager.scaling[core], freq);
 }
+
+#endif
 

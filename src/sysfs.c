@@ -181,7 +181,8 @@ sysfs_attr_open_rw(char* device, char** values, size_t size)
 	strcpy(attr->device, SYSFS_PREFIX);
 	strcpy(attr->device + strlen(SYSFS_PREFIX), device);
 	//debug(attr->device);
-	attr->fd = open(attr->device, O_RDWR | O_DSYNC | O_TRUNC);
+	//attr->fd = open(attr->device, O_RDWR | O_DSYNC | O_TRUNC);
+	attr->fd = open(attr->device, O_RDWR | O_TRUNC);
 	// Check if everything went alright
 	if(attr->fd == -1)
 	{
@@ -211,7 +212,8 @@ sysfs_attr_open_ro(char* device)
 	attr->device = malloc(sizeof(char) * (strlen(SYSFS_PREFIX) + strlen(device) + 1));
 	strcpy(attr->device, SYSFS_PREFIX);
 	strcpy(attr->device + strlen(SYSFS_PREFIX), device);
-	attr->fd = open(attr->device, O_RDONLY | O_DSYNC);
+	//attr->fd = open(attr->device, O_RDONLY | O_DSYNC);
+	attr->fd = open(attr->device, O_RDONLY);
 
 	// Check if everything went alright
 	if(attr->fd == -1)
@@ -233,22 +235,40 @@ inline
 void
 sysfs_attr_write(sysfs_attr_tp attr, size_t value)
 {
-	write(attr->fd, attr->data[value], attr->length[value]);
+	//debug(attr->device);
+	//debug(attr->data[value]);
+	int err = write(attr->fd, attr->data[value], attr->length[value]);
+	if(err < 1)
+	{
+		fprintf(stderr, "[%s:%d] Error while writing value to device\n", __FILE__, __LINE__);
+	}
 	lseek(attr->fd, 0, SEEK_SET);
 }
 
 void
 sysfs_attr_write_str(sysfs_attr_tp attr, char* str)
 {
-	write(attr->fd, str, strlen(str));
+	//debug(attr->device);
+	//debug(str);
+	int err = write(attr->fd, str, strlen(str));
+	if(err < 1)
+	{
+		fprintf(stderr, "[%s:%d] Error while writing value to device\n", __FILE__, __LINE__);
+	}
 	lseek(attr->fd, 0, SEEK_SET);
 }
 
 void
 sysfs_attr_write_buffer(sysfs_attr_tp attr, void* buffer, size_t size)
 {
-	write(attr->fd, buffer, size);
+	//debug(attr->device);
+	//debug((char*)buffer);
+	int err = write(attr->fd, buffer, size);
 	lseek(attr->fd, 0, SEEK_SET);
+	if(err < 1)
+	{
+		fprintf(stderr, "[%s:%d] Error while writing value to device\n", __FILE__, __LINE__);
+	}
 }
 
 char*

@@ -35,6 +35,7 @@
 #include <sched.h>
 #include <unistd.h>
 #include <rapl.h>
+#include <pelib/time.h>
 
 #include "sysfs.h"
 #include "cpu_manager.h"
@@ -91,9 +92,11 @@ struct drake_platform
 	void (*schedule_destroy)();
 	void* (*task_function)(size_t, task_status_t);
 	sem_t new_order;
+#if MANAGE_CPU
 	cpu_manager_t manager;
 	uint64_t read_freq;
 	int wait_after_scaling;
+#endif
 };
 typedef struct drake_platform *drake_platform_t;
 
@@ -110,12 +113,19 @@ parse_ia_arguments(size_t argc, char **argv)
 	ia_arguments_t args;
 	args.poll_at_idle = 0;
 	args.wait_after_scaling = 1;
+	args.num_cores = 1;
 
 	for(; argv[0] != NULL; argv++)
 	{
 		if(strcmp(argv[0], "--poll-at-idle") == 0)
 		{
 			args.poll_at_idle = 1;
+			continue;
+		}
+		if(strcmp(argv[0], "--num-cores") == 0)
+		{
+			argv++;
+			args.num_cores = atoi(argv[0]);
 			continue;
 		}
 		if(strcmp(argv[0], "--no-wait-after-scaling") == 0)
@@ -143,11 +153,13 @@ drake_ia_thread(void* args)
 		abort();
 	}
 
+#if MANAGE_CPU
 	cpu_set_t *cpu = CPU_ALLOC(handler->manager.online.size);
 	CPU_ZERO_S(CPU_ALLOC_SIZE(handler->manager.online.size), cpu);
 	CPU_SET_S(handler->manager.global_core_id[core_id].vid, CPU_ALLOC_SIZE(handler->manager.online.size), cpu);
 	sched_setaffinity(0, handler->manager.online.size, cpu);
 	CPU_FREE(cpu);
+#endif
 
 	// Wait for all cores to have their shared memory buffer allocated
 	pthread_barrier_wait(&handler->work_notify);
@@ -240,26 +252,53 @@ drake_ia_thread(void* args)
 	return NULL;
 }
 
+#if DISABLE_UNUSED_CORES && ! MANAGE_CPU
+#error Disabling unused cores (DISABLE_UNUSED_CORES=1) requires CPU management (MANAGE_CPU=1)
+#endif
+
+void
+drake_platform_sleep_enable(drake_platform_t pt, size_t core)
+{
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
+	size_t i;
+	for(i = 0; i < pt->manager.cstate[0].nb_states; i++)
+	{
+		sysfs_attr_write(pt->manager.cstate[0].attr[i], ZERO);
+	}
+#endif
+}
+
+void
+drake_platform_sleep_disable(drake_platform_t pt, size_t core)
+{
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
+	size_t i;
+	for(i = 0; i < pt->manager.cstate[0].nb_states; i++)
+	{
+		sysfs_attr_write(pt->manager.cstate[0].attr[i], ONE);
+	}
+#endif
+}
+
 void
 drake_platform_core_disable(drake_platform_t pt, size_t core)
 {
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
 	if(core > 0)
 	{
 		sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ZERO);
 	}
 	else
 	{
-		size_t i;
-		for(i = 0; i < pt->manager.cstate[0].nb_states; i++)
-		{
-			sysfs_attr_write(pt->manager.cstate[0].attr[i], ZERO);
-		}
+		drake_platform_sleep_enable(pt, 0);
 	}
+#endif
 }
 
 void
 drake_platform_core_enable(drake_platform_t pt, size_t core)
 {
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
 	if(core > 0)
 	{
 		// Caution: sysfs permission will not allow changing the cpuidle settings of this core anymore
@@ -273,6 +312,7 @@ drake_platform_core_enable(drake_platform_t pt, size_t core)
 			sysfs_attr_write(pt->manager.cstate[0].attr[i], ZERO);
 		}
 	}
+#endif
 }
 
 #define hexdump(obj) { char *ptr = (char*)&obj; size_t i; printf("[%s:%s:%d:CORE %zu] %s : ", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #obj); for(i = 0; i < sizeof(obj); i++) { printf("%02X ", ptr[i]); } printf("\n"); } fflush(NULL)
@@ -299,10 +339,14 @@ drake_platform_init(void* obj)
 	}
 
 	// Initialize hooks to cpufreq, cpuidle and hotplug, and switch off hyperthreading cores
+#if MANAGE_CPU
 	stream->manager = cpu_manager_init(args.poll_at_idle);
 	stream->wait_after_scaling = args.wait_after_scaling;
 
 	core_size = stream->manager.online.size;
+#else
+	core_size = args.num_cores;
+#endif
 	drake_thread_init_t *init = malloc(sizeof(drake_thread_init_t) * core_size);
 
 	shared_buffer = malloc(sizeof(void*) * core_size);
@@ -419,7 +463,9 @@ drake_platform_destroy(drake_platform_t stream)
 	drake_platform_private_free(stream->pthread);
 	drake_platform_private_free(stream->stream);
 	drake_platform_private_free(stream->success);
+#if MANAGE_CPU
 	cpu_manager_destroy(stream->manager);
+#endif
 
 	return 0;
 }
@@ -567,14 +613,51 @@ drake_platform_set_voltage(float voltage /* in volts */)
 	return 0;
 }
 
+#if SCALE_FREQUENCY && ! MANAGE_CPU
+#error Cannot activate frequency scaling (SCALE_FREQUENCY=1) without cpu management (MANAGE_CPU=0)
+#endif
+
 int
 drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in index of frequency set */)
 {
+	//struct timespec begin, end, period;
+	//clock_gettime(CLOCK_MONOTONIC, &begin);
+#if MANAGE_CPU && SCALE_FREQUENCY
 	sysfs_attr_write_buffer(stream->manager.scaling[stream->manager.global_core_id[drake_platform_core_id()].vid], stream->manager.freq[stream->manager.global_core_id[drake_platform_core_id()].vid][stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()].vid] - freq - 1], 8);
 	if(stream->wait_after_scaling != 0)
 	{
+#if USE_USLEEP
+#warning using microsleep
+		//debug_int(stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid]);
 		usleep(stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid]);
+#else
+#warning using poll
+		struct timespec now, wakeup;
+		clock_gettime(CLOCK_MONOTONIC, &wakeup);
+		int latency = stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid];
+		if(wakeup.tv_nsec + latency <= 1000000000 - latency)
+		{
+			wakeup.tv_nsec += latency;
+		}
+		else
+		{
+			wakeup.tv_nsec = wakeup.tv_nsec + latency - 1000000000;
+			wakeup.tv_sec += 1;
+		}
+
+		do	
+		{
+			clock_gettime(CLOCK_MONOTONIC, &now);
+		}
+		while(now.tv_sec < wakeup.tv_sec || now.tv_nsec < wakeup.tv_nsec);
+#endif
 	}
+	/*
+	clock_gettime(CLOCK_MONOTONIC, &end);
+	pelib_timespec_subtract(&period, &end, &begin);
+	printf("%li:%li\n", period.tv_sec, period.tv_nsec);
+	*/
+#endif
 
 	return 1;
 }
@@ -582,6 +665,7 @@ drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in 
 size_t
 drake_platform_get_frequency(drake_platform_t stream) /* in index of frequency set */
 {
+#if MANAGE_CPU && SCALE_FREQUENCY
 	sysfs_attr_read(stream->manager.cpufreq_current[stream->manager.global_core_id[drake_platform_core_id()].vid], (char*)&stream->read_freq, 8);
 	size_t i;
 	for(i = 0; i < stream->manager.nb_freq[stream->manager.global_core_id[drake_platform_core_id()].vid]; i++)
@@ -593,6 +677,9 @@ drake_platform_get_frequency(drake_platform_t stream) /* in index of frequency s
 	}
 
 	return i;
+#else
+	return 0;
+#endif
 }
 
 float
@@ -770,6 +857,7 @@ read_power(uint64_t node, int measurement, double *chip, double *core, double *m
 void*
 measure_power(void* arg)
 {
+#if MANAGE_CPU
 	int i;
 	int domain = 0;
 	drake_power_t tracker = (drake_power_t)arg;
@@ -884,6 +972,7 @@ measure_power(void* arg)
 		}
 	}
 #endif
+#endif
 
 	return NULL;
 }
@@ -891,6 +980,7 @@ measure_power(void* arg)
 drake_power_t
 drake_platform_power_init(drake_platform_t str, size_t samples, int measurement)
 {
+#if MANAGE_CPU
 	drake_power_t tracker = malloc(sizeof(struct drake_power));
 	tracker->power_chip = malloc(sizeof(double) * 2);
 	tracker->power_mc = malloc(sizeof(double) * 2);
@@ -915,27 +1005,36 @@ drake_platform_power_init(drake_platform_t str, size_t samples, int measurement)
 		free(tracker);
 		tracker = NULL;
 	}
-
 	return tracker;
+#else
+	return NULL;
+#endif
 }
 
 void
 drake_platform_power_begin(drake_power_t tracker)
 {
+#if MANAGE_CPU
 	sem_post(&tracker->run);
+#endif
 }
 
 size_t
 drake_platform_power_end(drake_power_t tracker)
 {
+#if MANAGE_CPU
 	sem_post(&tracker->run);
   	pthread_join(tracker->thread, NULL);
 	return tracker->collected;
+#else
+	return 0;
+#endif
 }
 
 FILE*
 drake_platform_power_printf_line_cumulate(FILE* stream, drake_power_t tracker, size_t i, int metrics, char *separator)
 {
+#if MANAGE_CPU
 	double line = 0;
 	if((metrics & (1 << DRAKE_POWER_CHIP)) != 0)
 	{
@@ -953,17 +1052,20 @@ drake_platform_power_printf_line_cumulate(FILE* stream, drake_power_t tracker, s
 	}
 
 	fprintf(stream, "%lf%s%f", tracker->time[i].time, separator, line);
+#endif
 	return stream;
 }
 
 FILE*
 drake_platform_power_printf_cumulate(FILE* stream, drake_power_t tracker, int metrics, char *separator)
 {
+#if MANAGE_CPU
 	size_t i;
 	for(i = 0; i < (tracker->collected > tracker->max_samples ? tracker->max_samples : tracker->collected); i++)
 	{
 		drake_platform_power_printf_line_cumulate(stream, tracker, i, metrics, separator);
 	}
+#endif
 
 	return stream;
 }
@@ -971,6 +1073,7 @@ drake_platform_power_printf_cumulate(FILE* stream, drake_power_t tracker, int me
 FILE*
 drake_platform_power_printf_line(FILE* stream, drake_power_t tracker, size_t i, char* separator)
 {
+#if MANAGE_CPU
 	if(separator == NULL)
 	{
 		separator = " ";
@@ -1005,13 +1108,14 @@ drake_platform_power_printf_line(FILE* stream, drake_power_t tracker, size_t i, 
 			fprintf(stream, "%s", separator);
 		}
 	}
-
+#endif
 	return stream;
 }
 
 FILE*
 drake_platform_power_printf(FILE* stream, drake_power_t tracker, char *separator)
 {
+#if MANAGE_CPU
 	if(separator == NULL)
 	{
 		separator = " ";
@@ -1023,13 +1127,14 @@ drake_platform_power_printf(FILE* stream, drake_power_t tracker, char *separator
 		drake_platform_power_printf_line(stream, tracker, i, separator);
 		fprintf(stream, "\n");
 	}
-
+#endif
 	return stream;
 }
 
 void
 drake_platform_power_destroy(drake_power_t tracker)
 {
+#if MANAGE_CPU
 	if(tracker->running != 0)
 	{
 		drake_platform_power_end(tracker);
@@ -1040,5 +1145,6 @@ drake_platform_power_destroy(drake_power_t tracker)
 	free(tracker->power_core);
 	free(tracker->time);
 	free(tracker);
+#endif
 }
 
