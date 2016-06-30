@@ -857,10 +857,10 @@ read_power(uint64_t node, int measurement, double *chip, double *core, double *m
 void*
 measure_power(void* arg)
 {
-#if MANAGE_CPU
 	int i;
 	int domain = 0;
 	drake_power_t tracker = (drake_power_t)arg;
+#if MANAGE_CPU
 	uint64_t num_pkg, num_core_per_pkg;
 	APIC_ID_t **pkg_map;
 	tracker->power_chip[0] = 0;
@@ -874,6 +874,9 @@ measure_power(void* arg)
 	}
 	int num_node = get_num_rapl_nodes_pkg();
 	pkg_map = rapl_get_topology(&num_pkg, &num_core_per_pkg);
+#else
+	int num_node = 1;
+#endif
 
 	sem_wait(&tracker->run);
 	tracker->power_chip[0] = 0;
@@ -886,6 +889,7 @@ measure_power(void* arg)
     	double end[num_node][RAPL_NR_DOMAIN];
 	// Begin measurement: Copy-pasted from RAPL cpu_power library
 	/* Read initial values */
+#if MANAGE_CPU
 	for (i = 0; i < num_node && 1; i++)
 	{
 		// Switch on measurement core, if necessary
@@ -919,11 +923,17 @@ measure_power(void* arg)
 			sysfs_attr_write(tracker->pt->manager.hotplug[os_id], ZERO);
 		}
 	}
+#else
+	begin_chip = 0;
+	begin_core = 0;
+	begin_mc = 0;
+#endif
 	drake_platform_time_get(&tracker->time[0]);
 
 	sem_wait(&tracker->run);
 	tracker->power_chip[0] = 0;
 
+#if MANAGE_CPU
 	// Wake up threads used by rapl for measurements
 	for(i = 0; i < num_pkg; i++)
 	{
@@ -952,6 +962,11 @@ measure_power(void* arg)
 		end_core += core;
 		end_mc += mc;
 	}
+#else
+	end_chip = 0;
+	end_core = 0;
+	end_mc = 0;
+#endif
 	drake_platform_time_get(&tracker->time[1]);
 	tracker->collected = 2;
 
@@ -972,7 +987,6 @@ measure_power(void* arg)
 		}
 	}
 #endif
-#endif
 
 	return NULL;
 }
@@ -980,7 +994,6 @@ measure_power(void* arg)
 drake_power_t
 drake_platform_power_init(drake_platform_t str, size_t samples, int measurement)
 {
-#if MANAGE_CPU
 	drake_power_t tracker = malloc(sizeof(struct drake_power));
 	tracker->power_chip = malloc(sizeof(double) * 2);
 	tracker->power_mc = malloc(sizeof(double) * 2);
@@ -995,7 +1008,8 @@ drake_platform_power_init(drake_platform_t str, size_t samples, int measurement)
 
 	sem_init(&tracker->run, 0, 0);
 	tracker->power_chip[0] = 0;
-	int retval = pthread_create(&(tracker->thread), NULL, measure_power, tracker);
+	int retval = 0;
+	retval = pthread_create(&(tracker->thread), NULL, measure_power, tracker);
 	tracker->power_chip[0] = 0;
 	if(retval != 0)
 	{
@@ -1006,29 +1020,20 @@ drake_platform_power_init(drake_platform_t str, size_t samples, int measurement)
 		tracker = NULL;
 	}
 	return tracker;
-#else
-	return NULL;
-#endif
 }
 
 void
 drake_platform_power_begin(drake_power_t tracker)
 {
-#if MANAGE_CPU
 	sem_post(&tracker->run);
-#endif
 }
 
 size_t
 drake_platform_power_end(drake_power_t tracker)
 {
-#if MANAGE_CPU
 	sem_post(&tracker->run);
   	pthread_join(tracker->thread, NULL);
 	return tracker->collected;
-#else
-	return 0;
-#endif
 }
 
 FILE*
@@ -1052,6 +1057,8 @@ drake_platform_power_printf_line_cumulate(FILE* stream, drake_power_t tracker, s
 	}
 
 	fprintf(stream, "%lf%s%f", tracker->time[i].time, separator, line);
+#else
+	fprintf(stream, "%lf%s0", tracker->time[i].time, separator);
 #endif
 	return stream;
 }
@@ -1059,13 +1066,11 @@ drake_platform_power_printf_line_cumulate(FILE* stream, drake_power_t tracker, s
 FILE*
 drake_platform_power_printf_cumulate(FILE* stream, drake_power_t tracker, int metrics, char *separator)
 {
-#if MANAGE_CPU
 	size_t i;
 	for(i = 0; i < (tracker->collected > tracker->max_samples ? tracker->max_samples : tracker->collected); i++)
 	{
 		drake_platform_power_printf_line_cumulate(stream, tracker, i, metrics, separator);
 	}
-#endif
 
 	return stream;
 }
@@ -1073,7 +1078,6 @@ drake_platform_power_printf_cumulate(FILE* stream, drake_power_t tracker, int me
 FILE*
 drake_platform_power_printf_line(FILE* stream, drake_power_t tracker, size_t i, char* separator)
 {
-#if MANAGE_CPU
 	if(separator == NULL)
 	{
 		separator = " ";
@@ -1108,14 +1112,12 @@ drake_platform_power_printf_line(FILE* stream, drake_power_t tracker, size_t i, 
 			fprintf(stream, "%s", separator);
 		}
 	}
-#endif
 	return stream;
 }
 
 FILE*
 drake_platform_power_printf(FILE* stream, drake_power_t tracker, char *separator)
 {
-#if MANAGE_CPU
 	if(separator == NULL)
 	{
 		separator = " ";
@@ -1127,14 +1129,12 @@ drake_platform_power_printf(FILE* stream, drake_power_t tracker, char *separator
 		drake_platform_power_printf_line(stream, tracker, i, separator);
 		fprintf(stream, "\n");
 	}
-#endif
 	return stream;
 }
 
 void
 drake_platform_power_destroy(drake_power_t tracker)
 {
-#if MANAGE_CPU
 	if(tracker->running != 0)
 	{
 		drake_platform_power_end(tracker);
@@ -1145,6 +1145,5 @@ drake_platform_power_destroy(drake_power_t tracker)
 	free(tracker->power_core);
 	free(tracker->time);
 	free(tracker);
-#endif
 }
 
