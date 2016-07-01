@@ -74,7 +74,7 @@ capture_privileges()
 }
 
 capture_privileges "$filename"
-setcap "$(echo $privileges | cut -f 1 -d '+'),cap_sys_admin,cap_sys_rawio+eip" "$filename"
+setcap "$(if [ "$privileges" != "" ]; then echo $privileges, | cut -f 1 -d '+'; fi)cap_sys_admin,cap_sys_rawio+eip" "$filename"
 eval sudo -u $user "$filename" `for i in "$@"; do printf "\"%s\" " "$(echo $i|sed "s/\"/\\\\"/g")"; done; echo`
 
 ' > $sudo
