@@ -67,6 +67,7 @@ CXX_TEST_LDFLAGS = -L.
 LIBS_TEST = 
 PKG_TEST = 
 
+attach =attach =  
 
 ## Cross-package flags for individual c/c++ source files
 #CFLAGS_foo.c = -DFOO_CROSS=foo_cross
