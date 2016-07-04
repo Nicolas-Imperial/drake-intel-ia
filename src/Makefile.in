@@ -67,7 +67,7 @@ CXX_TEST_LDFLAGS = -L.
 LIBS_TEST = 
 PKG_TEST = 
 
-attach =attach =  
+attach =
 
 ## Cross-package flags for individual c/c++ source files
 #CFLAGS_foo.c = -DFOO_CROSS=foo_cross
@@ -199,7 +199,6 @@ subdirs =
 clean = *.o *.txt *.fig *.bin *.e *.d *.obj
 
 extra = 
-post-install:
 
 ## Targets to run before any other target runs
 ## Can be a custom target
