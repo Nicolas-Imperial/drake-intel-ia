@@ -287,6 +287,18 @@ drake_platform_core_disable(drake_platform_t pt, size_t core)
 	if(core > 0)
 	{
 		sysfs_attr_write(pt->manager.hotplug[pt->manager.global_core_id[core].vid], ZERO);
+		//debug_size_t(core);
+		//debug_size_t(pt->manager.global_core_id[core].vid);
+		size_t i;
+		for(i = 0; i < pt->manager.online.size; i++)
+		{
+			//debug_size_t(i);
+			if(i != core)
+			{
+				//debug_size_t(pt->manager.global_core_id[i].vid);
+				msr_turbo_boost_disable(pt->manager.turbo_boost[pt->manager.global_core_id[i].vid]);
+			}
+		}
 	}
 	else
 	{
@@ -627,11 +639,11 @@ drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in 
 	if(stream->wait_after_scaling != 0)
 	{
 #if USE_USLEEP
-#warning using microsleep
+#warning Wait for frequency switching delay with microsleep
 		//debug_int(stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid]);
 		usleep(stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid]);
 #else
-#warning using poll
+#warning Wait for frequency switching delay with polling
 		struct timespec now, wakeup;
 		clock_gettime(CLOCK_MONOTONIC, &wakeup);
 		int latency = stream->manager.cpufreq_latency[stream->manager.global_core_id[drake_platform_core_id()].vid];
@@ -860,7 +872,7 @@ measure_power(void* arg)
 	int i;
 	int domain = 0;
 	drake_power_t tracker = (drake_power_t)arg;
-#if MANAGE_CPU
+#if MANAGE_CPU && MONITOR_POWER
 	uint64_t num_pkg, num_core_per_pkg;
 	APIC_ID_t **pkg_map;
 	tracker->power_chip[0] = 0;
@@ -889,7 +901,7 @@ measure_power(void* arg)
     	double end[num_node][RAPL_NR_DOMAIN];
 	// Begin measurement: Copy-pasted from RAPL cpu_power library
 	/* Read initial values */
-#if MANAGE_CPU
+#if MANAGE_CPU && MONITOR_POWER
 	for (i = 0; i < num_node && 1; i++)
 	{
 		// Switch on measurement core, if necessary
@@ -933,7 +945,7 @@ measure_power(void* arg)
 	sem_wait(&tracker->run);
 	tracker->power_chip[0] = 0;
 
-#if MANAGE_CPU
+#if MANAGE_CPU && MONITOR_POWER
 	// Wake up threads used by rapl for measurements
 	for(i = 0; i < num_pkg; i++)
 	{
@@ -1039,7 +1051,7 @@ drake_platform_power_end(drake_power_t tracker)
 FILE*
 drake_platform_power_printf_line_cumulate(FILE* stream, drake_power_t tracker, size_t i, int metrics, char *separator)
 {
-#if MANAGE_CPU
+#if MANAGE_CPU && MONITOR_POWER
 	double line = 0;
 	if((metrics & (1 << DRAKE_POWER_CHIP)) != 0)
 	{

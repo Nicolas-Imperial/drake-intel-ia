@@ -27,8 +27,17 @@ STORE_SIZE = 65536
 ## Package configuration
 CONFIG = RELEASE
 
+MANAGE_CPU=1
+SCALE_FREQUENCY=1
+FREQ_DEFAULT_MAX=0
+FREQ_DEFAULT_MIN=0
+FREQ_DEFAULT=0
+DISABLE_UNUSED_CORES=1
+MONITOR_POWER=1
+MANAGE_TURBO_BOOST=1
+
 ## C global parameters
-CFLAGS_BASE = -DMANAGE_CPU=0 -DSCALE_FREQUENCY=0 -DDISABLE_UNUSED_CORES=0
+CFLAGS_BASE = -DMANAGE_CPU=$(MANAGE_CPU) -DSCALE_FREQUENCY=$(SCALE_FREQUENCY) -DDISABLE_UNUSED_CORES=$(DISABLE_UNUSED_CORES) -DMONITOR_POWER=$(MONITOR_POWER) -DFREQ_DEFAULT_MIN=$(FREQ_DEFAULT_MIN) -DFREQ_DEFAULT_MAX=$(FREQ_DEFAULT_MAX) -DFREQ_DEFAULT=$(FREQ_DEFAULT) -DMANAGE_TURBO_BOOST=$(MANAGE_TURBO_BOOST)
 CFLAGS_PRIVATE = -isystem ../include 
 CFLAGS_CONFIG_RELEASE = -O3 -DNDEBUG
 CFLAGS_CONFIG_DEBUG = -g -O0 -DDEBUG=1
@@ -151,9 +160,9 @@ lib__deps =
 ## Embed these files into the final archive
 lib__embed = 
 
-libcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c
+libcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c msr.c
 libcxx_drake-intel-ia_src = 
-lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src) sysfs.h cpu_manager.h
+lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src) sysfs.h cpu_manager.h msr.h
 lib_drake-intel-ia_libs = -lrt
 lib_drake-intel-ia_ldflags = -pthread
 lib_drake-intel-ia_cxxflags = 
@@ -165,9 +174,9 @@ lib_drake-intel-ia_cflags_intel-ia.c = -D_GNU_SOURCE
 
 sharedcc_package = drake-intel-ia
 
-sharedcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c
+sharedcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c msr.c
 sharedcxx_drake-intel-ia_src = 
-shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
+shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src) sysfs.h cpu_manager.h msr.h
 shared_drake-intel-ia_libs = -lrt 
 shared_drake-intel-ia_ldflags = -pthread
 shared_drake-intel-ia_cflags = -fPIC

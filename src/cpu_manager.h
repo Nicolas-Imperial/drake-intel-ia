@@ -1,3 +1,5 @@
+#include "msr.h"
+
 #ifndef CPUFREQ_H
 #define CPUFREQ_H
 
@@ -24,6 +26,7 @@ struct cpu_manager
 {
 	simple_set_t present, online;
 	sysfs_attr_tp *hotplug, *scaling, *cpufreq_current, *cpufreq_governor;
+	msr_attr_tp *turbo_boost;
 	cstate_t *cstate;
 	char ***freq;
 	size_t *nb_freq;

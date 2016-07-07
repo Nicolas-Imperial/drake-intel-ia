@@ -17,10 +17,12 @@
 
 #include "sysfs.h"
 #include "cpu_manager.h"
+#include "msr.h"
 
 #define debug(var) printf("[%s:%s:%d] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 #define debug_int(var) printf("[%s:%s:%d] %s = %d\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 #define debug_long(var) printf("[%s:%s:%d] %s = %ld\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
+#define debug_double(var) printf("[%s:%s:%d] %s = %lf\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 #define debug_size_t(var) printf("[%s:%s:%d] %s = %zu\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 #define debug_addr(var) printf("[%s:%s:%d] %s = %p\n", __FILE__, __FUNCTION__, __LINE__, #var, var); fflush(stdout);
 
@@ -55,7 +57,7 @@ cpu_manager_init(int poll_at_idle)
 	cpu_manager_t manager;
 	manager.present = parse_simple_set("/sys/devices/system/cpu/present");
 	
-	// Switch all cores on and prepare dives to switch off hyperthread cores
+	// Switch all cores on and prepare to switch off hyperthread cores
 #define SYSFS_ONLINE_DEVICE_PATTERN "devices/system/cpu/cpu%zu/online"
 	manager.hotplug = malloc(sizeof(sysfs_attr_tp) * (manager.present.size));
 	for(i = 0; i < manager.present.size; i++)
@@ -88,7 +90,7 @@ cpu_manager_init(int poll_at_idle)
 	int active = 0;
 
 	// Deactivate hyperthreading cores
-	// Perhaps it is worth to not switch them off later
+	// TODO: Perhaps it is worth to not switch them off later so they can run monitoring threads
 	for(i = 0; i < manager.present.size; i++)
 	{
 		char *sysfs_core_id_device = malloc(sizeof(char) * (strlen(SYSFS_CORE_ID_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
@@ -166,7 +168,10 @@ cpu_manager_init(int poll_at_idle)
 		char *sysfs_cpufreq_governor = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_GOVERNOR_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
 		sprintf(sysfs_cpufreq_governor, SYSFS_CPUFREQ_GOVERNOR_PATTERN, manager.online.member[i]);
 		manager.cpufreq_governor[i] = sysfs_attr_open_rw(sysfs_cpufreq_governor, cpufreq_governor_str, 2);
+#if SCALE_FREQUENCY || FREQ_DEFAULT_MIN || FREQ_DEFAULT_MIN || FREQ_DEFAULT
+		// Set userspace frequency governor
 		sysfs_attr_write(manager.cpufreq_governor[i], CPUFREQ_USERSPACE);
+#endif
 		free(sysfs_cpufreq_governor);
 
 		// Read frequency levels
@@ -213,8 +218,18 @@ cpu_manager_init(int poll_at_idle)
 		manager.scaling[i] = sysfs_attr_open_rw(sysfs_scaling, manager.freq[i], manager.nb_freq[i]);
 		//sysfs_attr_write(manager.scaling[i], 0);
 		//sysfs_attr_write_str(manager.scaling[i], "2401000\n");
-		//sysfs_attr_write_buffer(manager.scaling[i], manager.freq[i][0], 8);
+#if ! SCALE_FREQUENCY
+#if FREQ_DEFAULT_MAX
+		sysfs_attr_write_buffer(manager.scaling[i], manager.freq[i][0], 8);
+#elif FREQ_DEFAULT_MIN
+		sysfs_attr_write_buffer(manager.scaling[i], manager.freq[i][manager.nb_freq[i] - 1], 8);
+#else
+#define MAKE_STRING_2(expr) #expr
+#define MAKE_STRING(expr) MAKE ## _ ## STRING ## _ ## 2(expr)
+		sysfs_attr_write_str(manager.scaling[i], MAKE_STRING(FREQ_DEFAULT));
+#endif
 		usleep(manager.cpufreq_latency[i]);
+#endif
 		free(sysfs_scaling);
 
 		char *sysfs_cpufreq_current = malloc(sizeof(char) * (strlen(SYSFS_CPUFREQ_CURRENT_PATTERN) - 2 + (manager.online.member[i] == 0 ? 1 : floor(log10(manager.online.member[i])) + 1) + 1));
@@ -302,6 +317,40 @@ cpu_manager_init(int poll_at_idle)
 	sysfs_attr_read(manager.cpufreq_current[0], (char*)&buf[0], 8);
 	sysfs_attr_read(manager.cpufreq_current[1], (char*)&buf[1], 8);
 
+// Magic value. Perhaps more information on https://software.intel.com/en-us/forums/software-tuning-performance-optimization-platform-monitoring/topic/392792. Quoting  Samuel M. on Mon, 05/20/2013 - 16:04:
+/*
+"section 14.3.2.2 OS Control of Opportunistic Processor Performance Operation (Vol. 3B  page 14-5  of the May 2012 version)
+
+System software can temporarily disengage opportunistic processor performance operation by setting bit 32 of the IA32_PERF_CTL MSR (0199H), using a readmodify-write sequence on the MSR. The opportunistic processor performance operation can be re-engaged by clearing bit 32 in IA32_PERF_CTL MSR, using a readmodify-write sequence. The DISENAGE bit in IA32_PERF_CTL is not reflected in bit 32 of the IA32_PERF_STATUS MSR (0198H), and it is not shared between logical processors in a physical package."
+*/
+// Actual values found in http://askubuntu.com/questions/764204/cant-disable-turbo-boost-since-ubuntu-16-04. Seem to work with command:
+// sudo wrmsr -a 0x1a0 0x4000850089
+// msr functions read content of 64 bits at offset 0x1a0, then sets or unsets its 38th bit to disable or enable turbo boost, respectively
+	manager.turbo_boost = malloc(sizeof(msr_attr_tp) * (manager.online.size));
+	for(i = 0; i < manager.online.size; i++)
+	{
+		// Disable turbo boost
+		/*debug_size_t(strlen(MSR_DEVICE));
+		debug_int(manager.online.member[i]);
+		debug_double(log10(manager.online.member[i]));
+		debug_int((int)floor(log10(manager.online.member[i])));
+		debug_int((int)floor(log10(manager.online.member[i]) + 1) + 1);
+		debug_size_t(strlen(MSR_DEVICE) - 2 + (size_t)floor(log10(manager.online.member[i]) + 1) + 1);
+		debug_size_t(sizeof(char) * (strlen(MSR_DEVICE) - 2 + (size_t)floor(log10(manager.online.member[i] > 0 ? manager.online.member[i] : 1) + 1) + 1)); */
+		char *msr = malloc(sizeof(char) * (strlen(DRAKE_MSR_DEVICE) - 2 + floor(log10(manager.online.member[i] > 0 ? manager.online.member[i] : 1) + 1) + 1));
+		//debug_addr(msr);
+		sprintf(msr, DRAKE_MSR_DEVICE, manager.online.member[i]);
+		manager.turbo_boost[i] = msr_attr_open(msr);
+		//debug(msr);
+		//printf("[%s:%s:%d] %X %lX\n", __FILE__, __FUNCTION__, __LINE__, MSR_DISABLE_BOOST_OFFSET, data);
+		free(msr);
+	}
+
+	for(i = 0; i < manager.online.size; i++)
+	{
+		msr_turbo_boost_disable(manager.turbo_boost[i]);
+	}
+
 	return manager;
 }
 
@@ -329,6 +378,7 @@ cpu_manager_destroy(cpu_manager_t manager)
 
 		sysfs_attr_write(manager.cpufreq_governor[i], CPUFREQ_ONDEMAND);
 		sysfs_attr_close(manager.cpufreq_governor[i]);
+		msr_attr_close(manager.turbo_boost[i]);
 
 		size_t j;
 		for(j = 0; j < manager.cstate[i].nb_states; j++)
@@ -350,6 +400,7 @@ cpu_manager_destroy(cpu_manager_t manager)
 	free(manager.rglobal_core_id);
 	free(manager.cpufreq_latency);
 	free(manager.hotplug);
+	free(manager.turbo_boost);
 }
 
 void

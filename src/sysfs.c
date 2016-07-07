@@ -235,8 +235,6 @@ inline
 void
 sysfs_attr_write(sysfs_attr_tp attr, size_t value)
 {
-	//debug(attr->device);
-	//debug(attr->data[value]);
 	int err = write(attr->fd, attr->data[value], attr->length[value]);
 	if(err < 1)
 	{
