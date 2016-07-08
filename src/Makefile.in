@@ -37,7 +37,7 @@ MONITOR_POWER=1
 MANAGE_TURBO_BOOST=1
 
 ## C global parameters
-CFLAGS_BASE = -DMANAGE_CPU=$(MANAGE_CPU) -DSCALE_FREQUENCY=$(SCALE_FREQUENCY) -DDISABLE_UNUSED_CORES=$(DISABLE_UNUSED_CORES) -DMONITOR_POWER=$(MONITOR_POWER) -DFREQ_DEFAULT_MIN=$(FREQ_DEFAULT_MIN) -DFREQ_DEFAULT_MAX=$(FREQ_DEFAULT_MAX) -DFREQ_DEFAULT=$(FREQ_DEFAULT) -DMANAGE_TURBO_BOOST=$(MANAGE_TURBO_BOOST)
+CFLAGS_BASE = 
 CFLAGS_PRIVATE = -isystem ../include 
 CFLAGS_CONFIG_RELEASE = -O3 -DNDEBUG
 CFLAGS_CONFIG_DEBUG = -g -O0 -DDEBUG=1
@@ -160,11 +160,14 @@ lib__deps =
 ## Embed these files into the final archive
 lib__embed = 
 
+drake-intel-ia-cflags = -DMANAGE_CPU=$(MANAGE_CPU) -DSCALE_FREQUENCY=$(SCALE_FREQUENCY) -DDISABLE_UNUSED_CORES=$(DISABLE_UNUSED_CORES) -DMONITOR_POWER=$(MONITOR_POWER) -DFREQ_DEFAULT_MIN=$(FREQ_DEFAULT_MIN) -DFREQ_DEFAULT_MAX=$(FREQ_DEFAULT_MAX) -DFREQ_DEFAULT=$(FREQ_DEFAULT) -DMANAGE_TURBO_BOOST=$(MANAGE_TURBO_BOOST)
+
 libcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c msr.c
 libcxx_drake-intel-ia_src = 
 lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src) sysfs.h cpu_manager.h msr.h
 lib_drake-intel-ia_libs = -lrt
 lib_drake-intel-ia_ldflags = -pthread
+lib_drake-intel-ia_cflags_private = $(drake-intel-ia-cflags)
 lib_drake-intel-ia_cxxflags = 
 lib_drake-intel-ia_pkg = drake pelib-core rapl
 lib_drake-intel-ia_pkg_requires = drake pelib-core rapl
@@ -179,7 +182,8 @@ sharedcxx_drake-intel-ia_src =
 shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src) sysfs.h cpu_manager.h msr.h
 shared_drake-intel-ia_libs = -lrt 
 shared_drake-intel-ia_ldflags = -pthread
-shared_drake-intel-ia_cflags = -fPIC
+shared_drake-intel-ia_cflags = 
+shared_drake-intel-ia_cflags_private = -fPIC $(drake-intel-ia-cflags)
 shared_drake-intel-ia_pkg = drake pelib-core rapl
 shared_drake-intel-ia_pkg_requires = drake pelib-core
 shared_drake-intel-ia_pkg_libs = -pthread
@@ -215,4 +219,6 @@ extra =
 #FIRST=first
 
 first:
+	@echo $(sharedcc_list)
+	@echo $(lib_pkgconfig)
 	@/bin/false
