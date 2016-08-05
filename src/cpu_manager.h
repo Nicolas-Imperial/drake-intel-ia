@@ -40,4 +40,11 @@ void cpu_manager_destroy(cpu_manager_t manager);
 void cpu_manager_set_frequency(cpu_manager_t manager, size_t core, char *freq);
 #endif
 
+#if ! MANAGE_CPU
+#undef DISABLE_UNUSED_CORES
+#define DISABLE_UNUSED_CORES 0
+#undef SCALE_FREQUENCY
+#define SCALE_FREQUENCY 0
+#endif
+
 #endif

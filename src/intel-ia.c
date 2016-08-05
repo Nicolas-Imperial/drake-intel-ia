@@ -105,6 +105,7 @@ static __thread size_t core_id = 0;
 void **shared_buffer;
 pelib_malloc_queue_t **shared;
 pthread_barrier_t barrier;
+pthread_mutex_t exclusive;
 
 static
 ia_arguments_t
@@ -252,10 +253,6 @@ drake_ia_thread(void* args)
 	return NULL;
 }
 
-#if DISABLE_UNUSED_CORES && ! MANAGE_CPU
-#error Disabling unused cores (DISABLE_UNUSED_CORES=1) requires CPU management (MANAGE_CPU=1)
-#endif
-
 void
 drake_platform_sleep_enable(drake_platform_t pt, size_t core)
 {
@@ -368,6 +365,7 @@ drake_platform_init(void* obj)
 	stream->success = drake_platform_private_malloc(sizeof(int) * core_size);
 	pthread_barrier_init(&stream->work_notify, NULL, core_size);
 	pthread_barrier_init(&barrier, NULL, core_size);
+	pthread_mutex_init(&exclusive, NULL);
 	sem_init(&stream->report_ready, 0, 1);
 	sem_init(&stream->ready, 0, 0);
 	sem_init(&stream->new_order, 0, 0);
@@ -469,6 +467,7 @@ drake_platform_destroy(drake_platform_t stream)
 {
 	pthread_barrier_destroy(&stream->work_notify);
 	pthread_barrier_destroy(&barrier);
+	pthread_mutex_destroy(&exclusive);
 	sem_destroy(&stream->new_order);
 	sem_destroy(&stream->ready);
 	sem_destroy(&stream->report_ready);
@@ -570,15 +569,13 @@ drake_platform_barrier(void* channel)
 void
 drake_platform_exclusive_begin()
 {
-	printf("[%s:%s:%d][Error] Not implemented\n", __FILE__, __FUNCTION__, __LINE__);
-	abort();
+	pthread_mutex_lock(&exclusive);
 }
 
 void
 drake_platform_exclusive_end()
 {
-	printf("[%s:%s:%d][Error] Not implemented\n", __FILE__, __FUNCTION__, __LINE__);
-	abort();
+	pthread_mutex_unlock(&exclusive);
 }
 
 void*
@@ -624,10 +621,6 @@ drake_platform_set_voltage(float voltage /* in volts */)
 {
 	return 0;
 }
-
-#if SCALE_FREQUENCY && ! MANAGE_CPU
-#error Cannot activate frequency scaling (SCALE_FREQUENCY=1) without cpu management (MANAGE_CPU=0)
-#endif
 
 int
 drake_platform_set_voltage_frequency(drake_platform_t stream, size_t freq /* in index of frequency set */)
