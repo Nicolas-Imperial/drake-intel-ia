@@ -60,9 +60,9 @@
 #define debug_size_t(var)
 #endif
 
-#define DRAKE_IA_LINE_SIZE 64
-#define DRAKE_IA_SHARED_SIZE (256 * 1024)
-//#define DRAKE_IA_SHARED_SIZE (2 * 1024)
+//#define DRAKE_IA_LINE_SIZE 64
+//#define DRAKE_IA_SHARED_SIZE (256 * 1024)
+//#define DRAKE_IA_SHARED_SIZE 512
 
 enum phase { DRAKE_IA_CREATE, DRAKE_IA_INIT, DRAKE_IA_RUN, DRAKE_IA_DESTROY };
 
@@ -150,7 +150,7 @@ drake_ia_thread(void* args)
 	drake_platform_t handler = init->handler;
 	if(posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_SHARED_SIZE) != 0)
 	{
-		fprintf(stderr, "[%s:%d] Could not allocate communication memory. Aborting", __FILE__, __LINE__);
+		fprintf(stderr, "[%s:%d] Could not allocate communication memory. Aborting.\n", __FILE__, __LINE__);
 		abort();
 	}
 
