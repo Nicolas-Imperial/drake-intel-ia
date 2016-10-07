@@ -1,0 +1,147 @@
+#!/bin/bash
+
+configure_sysfsutils()
+{
+	local p=`cat /proc/cpuinfo | grep -E "^processor\s*:"|wc -l`
+	for i in `seq 0 $(($p - 1))`
+	do
+		echo mode devices/system/cpu/cpu$i/cpufreq/cpuinfo_cur_freq = 440
+		echo owner devices/system/cpu/cpu$i/cpufreq/cpuinfo_cur_freq = root:cpufreq
+		echo mode devices/system/cpu/cpu$i/cpufreq/scaling_setspeed = 664
+		echo owner devices/system/cpu/cpu$i/cpufreq/scaling_setspeed = root:cpufreq
+
+		if [ "$i" != "0" ]
+		then
+			echo mode devices/system/cpu/cpu$i/online = 664
+			echo owner devices/system/cpu/cpu$i/online = root:hotplug
+		fi
+
+		echo mode devices/system/cpu/cpufreq/policy$i/scaling_governor = 664
+		echo owner devices/system/cpu/cpufreq/policy$i/scaling_governor = root:cpufreq
+
+		for j in `seq 0 $(( $(ls -d /sys/devices/system/cpu/cpu$i/cpuidle/state* | wc -l) - 1 ))`
+		do
+			echo mode devices/system/cpu/cpu$i/cpuidle/state$j/disable = 664
+			echo owner devices/system/cpu/cpu$i/cpuidle/state$j/disable = root:cpuidle
+		done; 
+done;
+
+echo devices/system/cpu/cpuidle/current_governor = menu
+}
+
+add_group()
+{
+	local GRP=$1
+	local USERNAME=$2
+
+	addgroup --system $GRP
+	usermod -a -G $GRP $USERNAME
+}
+
+configure_sudo()
+{
+	local FILENAME=$1
+	echo 'Defaults:%drake-intel-ia,root	env_keep += "DRAKE_IA_CONFIG_ARGS"' > $FILENAME
+	echo '%sysfs  ALL = (root) NOPASSWD: /etc/init.d/sysfsutils' >> $FILENAME
+	echo '%drake-intel-ia  ALL = (root) NOPASSWD: /usr/local/share/drake-intel-ia/run' >> $FILENAME
+	chmod 440 $FILENAME
+}
+
+install_wrapper()
+{
+	local share=/usr/local/share/drake-intel-ia
+	local sudo=${share}/run
+	local bin=/usr/local/bin/drake-intel-ia
+
+	mkdir -p $share
+	echo -e '#!/bin/bash
+
+filename="$2"
+user=$1
+shift 2
+
+restore_privileges()
+{
+	setcap "" "$filename"
+	setcap "$privileges" "$filename"
+}
+trap restore_privileges EXIT
+
+capture_privileges()
+{
+	local filename="$1"
+	privileges="`getcap "$filename" | cut -f 2 -d =`"
+}
+
+capture_privileges "$filename"
+setcap "$(if [ "$privileges" != "" ]; then echo $privileges, | cut -f 1 -d '+'; fi)cap_sys_admin,cap_sys_rawio+eip" "$filename"
+eval sudo -u $user "$filename" `for i in "$@"; do printf "\"%s\" " "$(echo $i|sed "s/\"/\\\\"/g")"; done; echo`
+
+' > $sudo
+chmod 755 $sudo
+
+	echo -e '#!/bin/bash
+eval sudo '$sudo' $USER "$filename" `for i in "$@"; do printf "\"%s\" " "$(echo $i|sed "s/\"/\\\\"/g")"; done; echo`
+' > $bin
+chmod 755 $bin
+}
+
+do_config()
+{
+	local USERNAME=$1
+	if [ "$UID" != "0" ]
+	then
+		echo This script requires root priviledges. Please run as root or using sudo. >&2
+		exit 1
+	fi
+
+	## Add groups
+	add_group cpufreq $USERNAME
+	add_group cpuidle $USERNAME
+	add_group hotplug $USERNAME
+	add_group sysfs $USERNAME
+	add_group drake-intel-ia $USERNAME
+
+	## Generate sysfsutils configuration file
+	configure_sysfsutils > /etc/sysfs.d/50-drake-intel-ia.conf
+	/etc/init.d/sysfsutils restart
+
+	## Generate password-less sudo privilege to restart sysfsutils
+	configure_sudo /etc/sudoers.d/drake
+
+	## Add running wrapper for drake applications linked with intel-ia backend
+	install_wrapper
+
+	## Install msr-tools and set required priviledges
+	apt-get install msr-tools
+	setcap 'cap_sys_admin,cap_sys_rawio+eip' `which wrmsr`
+	setcap 'cap_sys_admin,cap_sys_rawio+eip' `which rdmsr`
+}
+
+USR=$1
+
+if [ "$USR" == "" ]
+then
+	if [ "$UID" == "0" ]
+	then
+		echo Setting up privileges for superuser. You probably want to set up privileges for a normal user\; if so, please give its username as first argument and run this script again >&2
+	else
+		echo This requires superuser privileges. Trying with sudo. >&2
+	fi
+	sudo $0 $USER
+	exit $?
+else
+	if [ "$UID" != "0" ]
+	then
+		echo This requires superuser privileges. Trying with sudo. >&2
+		sudo $0 $USR
+		exit $?
+	else
+		do_config $USR
+		echo Configuration done.
+		echo You might need to logout and login again before all new settings take effect.
+		echo Add users to groups cpufreq, cpuidle, hotplug, sysfs and drake-inte-ia to allow them to use all features of Drake for Intel IA architecture.
+		echo Do not forget to add options \"intel_idle.max_cstate=0 cpuidle_sysfs_switch=1 intel_pstate=disable\" to your kernel before using drake.
+	fi
+fi
+

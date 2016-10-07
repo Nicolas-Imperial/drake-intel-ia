@@ -25,10 +25,22 @@
 STORE_SIZE = 65536
 
 ## Package configuration
-CONFIG = release
+CONFIG = RELEASE
+
+MANAGE_CPU=1
+SCALE_FREQUENCY=1
+FREQ_DEFAULT_MAX=0
+FREQ_DEFAULT_MIN=0
+FREQ_DEFAULT=0
+DISABLE_UNUSED_CORES=1
+MONITOR_POWER=1
+MANAGE_TURBO_BOOST=1
+
+DRAKE_IA_SHARED_SIZE='262144'
+DRAKE_IA_LINE_SIZE=64
 
 ## C global parameters
-CFLAGS_BASE = 
+CFLAGS_BASE = -DDRAKE_IA_SHARED_SIZE=$(DRAKE_IA_SHARED_SIZE) -DDRAKE_IA_LINE_SIZE=$(DRAKE_IA_LINE_SIZE)
 CFLAGS_PRIVATE = -isystem ../include 
 CFLAGS_CONFIG_RELEASE = -O3 -DNDEBUG
 CFLAGS_CONFIG_DEBUG = -g -O0 -DDEBUG=1
@@ -38,8 +50,8 @@ CC_DEPS =
 CC_PKG = 
 CC_LIBS = 
 CC_TEST_PKG = $(CC_PKG)
-CC_TEST_LIBS = $(CC_LIBS) -lunitc -lrt 
-CC_TEST_DEPS = $(CC_DEPS) libunitc+.a
+CC_TEST_LIBS = $(CC_LIBS)
+CC_TEST_DEPS = $(CC_DEPS)
 CC_TEST_LDFLAGS = -L.
 
 ## C++ global parameters
@@ -53,8 +65,8 @@ CXX_DEPS =
 CXX_PKG = 
 CXX_LIBS = -lrt
 CXX_TEST_PKG = $(CXX_PKG)
-CXX_TEST_LIBS = $(CXX_LIBS) -lunitc++ 
-CXX_TEST_DEPS = $(CXX_DEPS) libunitc++.a
+CXX_TEST_LIBS = $(CXX_LIBS) 
+CXX_TEST_DEPS = $(CXX_DEPS)
 CXX_TEST_LDFLAGS = -L.
 
 ## List of (pkg-config) packages this project depends on
@@ -67,6 +79,7 @@ CXX_TEST_LDFLAGS = -L.
 LIBS_TEST = 
 PKG_TEST = 
 
+attach =
 
 ## Cross-package flags for individual c/c++ source files
 #CFLAGS_foo.c = -DFOO_CROSS=foo_cross
@@ -150,29 +163,35 @@ lib__deps =
 ## Embed these files into the final archive
 lib__embed = 
 
-libcc_drake-intel-ia_src = intel-ia.c
+drake-intel-ia-cflags = -DMANAGE_CPU=$(MANAGE_CPU) -DSCALE_FREQUENCY=$(SCALE_FREQUENCY) -DDISABLE_UNUSED_CORES=$(DISABLE_UNUSED_CORES) -DMONITOR_POWER=$(MONITOR_POWER) -DFREQ_DEFAULT_MIN=$(FREQ_DEFAULT_MIN) -DFREQ_DEFAULT_MAX=$(FREQ_DEFAULT_MAX) -DFREQ_DEFAULT=$(FREQ_DEFAULT) -DMANAGE_TURBO_BOOST=$(MANAGE_TURBO_BOOST)
+
+libcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c msr.c
 libcxx_drake-intel-ia_src = 
-lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
+lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src) sysfs.h cpu_manager.h msr.h
 lib_drake-intel-ia_libs = -lrt
 lib_drake-intel-ia_ldflags = -pthread
+lib_drake-intel-ia_cflags_private = $(drake-intel-ia-cflags)
 lib_drake-intel-ia_cxxflags = 
-lib_drake-intel-ia_pkg = drake pelib
-lib_drake-intel-ia_pkg_requires = drake pelib
+lib_drake-intel-ia_pkg = drake pelib-core rapl
+lib_drake-intel-ia_pkg_requires = drake pelib-core rapl
 lib_drake-intel-ia_pkg_libs = -pthread
 lib_drake-intel-ia_export = $(libcc_drake-intel-ia_src) $(libcxx_drake-intel-ia_src)
+lib_drake-intel-ia_cflags_intel-ia.c = -D_GNU_SOURCE
 
 sharedcc_package = drake-intel-ia
 
-sharedcc_drake-intel-ia_src = intel-ia.c
+sharedcc_drake-intel-ia_src = intel-ia.c sysfs.c cpu_manager.c msr.c
 sharedcxx_drake-intel-ia_src = 
-shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
+shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src) sysfs.h cpu_manager.h msr.h
 shared_drake-intel-ia_libs = -lrt 
 shared_drake-intel-ia_ldflags = -pthread
-shared_drake-intel-ia_cflags = -fPIC
-shared_drake-intel-ia_pkg = drake pelib
-shared_drake-intel-ia_pkg_requires = drake pelib
+shared_drake-intel-ia_cflags = 
+shared_drake-intel-ia_cflags_private = -fPIC $(drake-intel-ia-cflags)
+shared_drake-intel-ia_pkg = drake pelib-core rapl
+shared_drake-intel-ia_pkg_requires = drake pelib-core
 shared_drake-intel-ia_pkg_libs = -pthread
 shared_drake-intel-ia_export = $(sharedcc_drake-intel-ia_src) $(sharedcxx_drake-intel-ia_src)
+shared_drake-intel-ia_cflags_intel-ia.c = -D_GNU_SOURCE
 
 ## C test packages and their sources
 testcc_package = 
@@ -196,7 +215,6 @@ subdirs =
 clean = *.o *.txt *.fig *.bin *.e *.d *.obj
 
 extra = 
-post-install:
 
 ## Targets to run before any other target runs
 ## Can be a custom target
@@ -204,4 +222,6 @@ post-install:
 #FIRST=first
 
 first:
+	@echo $(sharedcc_list)
+	@echo $(lib_pkgconfig)
 	@/bin/false
