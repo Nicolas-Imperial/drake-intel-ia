@@ -420,18 +420,18 @@ install: pre-install submake-install do-install post-install
 pre-install:
      
 do-install: $(lib_pkgconfig) $(lib_list) $(bin_list) $(shared_list) $(shared_linkername) $(shared_soname)
-	$(if $(strip $(attach)),install -d $(DESTDIR)$(final_sharedir))
+	$(if $(strip $(attach)),test -d $(DESTDIR)$(final_sharedir) || install -d $(DESTDIR)$(final_sharedir))
 	$(if $(strip $(attach)),install -m 644 $(attach) $(DESTDIR)$(final_sharedir))
-	$(if $(strip $(lib_list)),install -d $(DESTDIR)$(final_libdir))
+	$(if $(strip $(lib_list)),test -d $(DESTDIR)$(final_libdir) || install -d $(DESTDIR)$(final_libdir))
 	$(if $(strip $(lib_list)),install -m 644 $(lib_list) $(DESTDIR)$(final_libdir))
-	$(if $(strip $(shared_list)),install -d $(DESTDIR)$(final_libdir))
+	$(if $(strip $(shared_list)),test -d $(DESTDIR)$(final_libdir) || install -d $(DESTDIR)$(final_libdir))
 	$(if $(strip $(shared_list)),install -m 755 $(shared_list) $(DESTDIR)$(final_libdir))
 	$(if $(strip $(shared_linkername)),cp -a $(shared_linkername) $(DESTDIR)$(final_libdir))
 	$(if $(strip $(shared_soname)),cp -a $(shared_soname) $(DESTDIR)$(final_libdir))
-	$(if $(strip $(bin_list)),install -d $(DESTDIR)$(final_bindir))
+	$(if $(strip $(bin_list)),test -d $(DESTDIR)$(final_bindir) || install -d $(DESTDIR)$(final_bindir))
 	$(if $(strip $(bin_list)),install -m 755 $(bin_list) $(DESTDIR)$(final_bindir))
-	$(if $(strip $(lib_list)),install -d $(DESTDIR)$(final_libdir)/pkgconfig)
-	$(if $(strip $(shared_list)),install -d $(DESTDIR)$(final_libdir)/pkgconfig)
+	$(if $(strip $(lib_list)),test -d $(DESTDIR)$(final_libdir)/pkgconfig || install -d $(DESTDIR)$(final_libdir)/pkgconfig)
+	$(if $(strip $(shared_list)),test -d $(DESTDIR)$(final_libdir)/pkgconfig || install -d $(DESTDIR)$(final_libdir)/pkgconfig)
 	$(if $(strip $(lib_pkgconfig)),install -m 644 $(lib_pkgconfig) $(DESTDIR)$(final_libdir)/pkgconfig)
 
 post-install:
