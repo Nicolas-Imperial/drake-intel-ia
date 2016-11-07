@@ -116,8 +116,10 @@ parse_ia_arguments(size_t argc, char **argv)
 	args.wait_after_scaling = 1;
 	args.num_cores = 1;
 
+	//debug_size_t(argc);
 	for(; argv[0] != NULL; argv++)
 	{
+		//debug(argv[0]);
 		if(strcmp(argv[0], "--poll-at-idle") == 0)
 		{
 			args.poll_at_idle = 1;
@@ -127,6 +129,7 @@ parse_ia_arguments(size_t argc, char **argv)
 		{
 			argv++;
 			args.num_cores = atoi(argv[0]);
+			//debug_int(args.num_cores);
 			continue;
 		}
 		if(strcmp(argv[0], "--no-wait-after-scaling") == 0)
@@ -701,7 +704,7 @@ int drake_platform_time_get(drake_time_t container)
 	return 1;
 }
 
-int drake_platform_time_substract(drake_time_t res, drake_time_t t1, drake_time_t t2)
+int drake_platform_time_subtract(drake_time_t res, drake_time_t t1, drake_time_t t2)
 {
 	res->time = t1->time - t2->time;
 	return 1;
@@ -758,6 +761,53 @@ drake_platform_time_printf(FILE *stream, drake_time_t time)
 {
 	fprintf(stream, "%f", time->time);
 	return stream;
+}
+
+double
+drake_platform_time_double(drake_time_t time)
+{
+	return time->time;
+}
+
+char*
+drake_platform_time_str(drake_time_t time)
+{
+	if(time->time == 0)
+	{
+		char *str = malloc(sizeof(char) * 2);
+		str[0] = '0';
+		str[0] = '\0';
+		return str;
+	}
+	else
+	{
+		size_t size;
+		if(time->time <= 1 && time->time >= -1)
+		{
+			// One digit for integer 0
+			size = 1;
+			//debug_size_t(size);
+		}
+		else
+		{
+			// As many digits as needed for integer part
+			size = ceil(log10(time->time));
+			//debug_size_t(size);
+		}
+		size += time->time < 0 ? 1 : 0; // Minus sign
+		//debug_size_t(size);
+		size += 1; // Point
+		//debug_size_t(size);
+		size += 6; // decimal digits
+		//debug_size_t(size);
+		size += 1; // Null terminator
+		//debug_size_t(size);
+		//printf("%.6lf\n", time->time);
+		// Number of digits (log10() + 1) + minus sign (time >= 0?) + point (1) + decimals (6) + termination (1)
+		char *str = malloc(sizeof(char) * size);
+		sprintf(str, "%.6lf", time->time);
+		return str;
+	}
 }
 
 void
