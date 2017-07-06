@@ -20,18 +20,31 @@
 ## Enable GNU make secondary expansion feature
 .SECONDEXPANSION:
 
+## The default target is the first target in the makefile
+$(DEFAULT):
+include Makefile.in
+
 ## Export all variables to sub-makefiles
 export
 
 ## Fills configure directory variables with default values if necessary and define environment variables
-final_prefix := $(if $(prefix),$(prefix),$(HOME)/.local)
-final_libdir := $(if $(libdir),$(libdir),$(prefix)/lib)
-final_sharedir := $(if $(libdir),$(libdir),$(prefix)/share/$(package))
-final_includedir := $(if $(includedir),$(includedir),$(prefix)/include)
-final_bindir := $(if $(bindir),$(bindir),$(prefix)/bin)
+final_prefix := $(if $(prefix),$(prefix),$(call PREFIX_$(CONFIG)))
+final_libdir := $(if $(libdir),$(libdir),$(final_prefix)/lib)
+final_sharedir := $(if $(libdir),$(libdir),$(final_prefix)/share/$(package))
+final_includedir := $(if $(includedir),$(includedir),$(final_prefix)/include)
+final_bindir := $(if $(bindir),$(bindir),$(final_prefix)/bin)
+
+## https://stackoverflow.com/questions/16144115/makefile-remove-duplicate-words-without-sorting
+define uniq =
+  $(eval seen :=)
+  $(foreach _,$1,$(if $(filter $_,${seen}),,$(eval seen += $_)))
+  ${seen}
+endef
 
 export LIBRARY_PATH := $(LIBRARY_PATH):$(final_libdir)
-export LD_RUN_PATH := $(LD_RUN_PATH):$(final_libdir)
+#export LD_RUN_PATH := $(shell echo $(call uniq,$(shell echo $(LD_RUN_PATH):$(final_libdir) | tr -s : | tr : ' ')) | tr ' ' :)
+export LD_RUN_PATH := $(shell echo $(call uniq,$(shell echo $(final_libdir):$(LD_RUN_PATH) | tr -s : | tr : ' ')) | tr ' ' :)
+#export LD_RUN_PATH := $(LD_RUN_PATH):$(final_libdir)
 export PKG_CONFIG_PATH := $(PKG_CONFIG_PATH):$(final_libdir)/pkgconfig
 export C_INCLUDE_PATH := $(C_INCLUDE_PATH):$(final_includedir)
 export CPLUS_INCLUDE_PATH := $(CPLUS_INCLUDE_PATH):$(final_includedir)
@@ -44,10 +57,6 @@ DEFAULT := all
 
 ## Targets asked for running, or default target if none
 TARGETS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),$(DEFAULT))
-
-## The default target is the first target in the makefile
-$(DEFAULT):
-include Makefile.in
 
 ## Make all targets called dependent on some action to be run beforehand
 $(TARGETS): $(FIRST)
@@ -387,7 +396,7 @@ do-dist:
 	mkdir -p $(distdir)
 	cp Makefile $(distdir)
 	cp Makefile.in $(distdir)
-	$(if $(strip $(extra)),cp $(extra) $(distdir))
+	$(if $(strip $(attach)),cp $(attach) $(distdir))
 	$(if $(strip $(bincc_package:%=bin_%_export)),cp $(sort $(foreach var,$(bincc_package:%=bin_%_export),$(call $(var)))) $(distdir),)
 	$(if $(strip $(bincxx_package:%=bin_%_export)),cp $(sort $(foreach var,$(bincxx_package:%=bin_%_export),$(call $(var)))) $(distdir),)
 	$(if $(strip $(lib_package:%=lib_%_export)),cp $(sort $(foreach var,$(lib_package:%=lib_%_export),$(call $(var)))) $(distdir),)

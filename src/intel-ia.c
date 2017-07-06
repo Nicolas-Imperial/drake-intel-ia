@@ -97,6 +97,7 @@ struct drake_platform
 	uint64_t read_freq;
 	int wait_after_scaling;
 #endif
+	pthread_t run_async;
 };
 typedef struct drake_platform *drake_platform_t;
 
@@ -254,6 +255,30 @@ drake_ia_thread(void* args)
 
 	// Terminate
 	return NULL;
+}
+
+static
+void*
+run_stream(void *arg)
+{
+	drake_stream_t *str = (drake_stream_t*)arg;
+	size_t status = (size_t)drake_stream_run(str);
+	pthread_exit((void*)status);
+	return status;
+}
+
+void
+drake_platform_stream_run_async(drake_platform_t pt)
+{
+	pthread_create(&pt->run_async, NULL, run_stream, pt->stream);
+}
+
+int
+drake_platform_stream_wait(drake_platform_t pt)
+{
+	size_t run_status;
+	pthread_join(pt->run_async, (void**)&run_status);
+	return run_status;
 }
 
 void
