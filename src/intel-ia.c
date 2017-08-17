@@ -264,7 +264,7 @@ run_stream(void *arg)
 	drake_stream_t *str = (drake_stream_t*)arg;
 	size_t status = (size_t)drake_stream_run(str);
 	pthread_exit((void*)status);
-	return status;
+	return (void*)status;
 }
 
 void
