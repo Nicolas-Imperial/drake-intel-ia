@@ -20,10 +20,6 @@
 ## It's OK to define global libs and ldflags here as they are defined as private in the libsries pkg-config file
 ## Restrain yourself to define dependency packages here as they are generated in the public field of pkg-config
 
-## Application settings
-## Store memory size in KB (L2 cache on SCC)
-STORE_SIZE = 65536
-
 ## Package configuration
 CONFIG = RELEASE
 
@@ -41,12 +37,12 @@ MANAGE_TURBO_BOOST=1
 asan_cflags=
 asan_libs=
 
-DRAKE_IA_SHARED_SIZE='262144'
+DRAKE_IA_L2_SIZE='262144'
 DRAKE_IA_LINE_SIZE=64
 
 ## C global parameters
-CFLAGS_BASE = -DDRAKE_IA_SHARED_SIZE=$(DRAKE_IA_SHARED_SIZE) -DDRAKE_IA_LINE_SIZE=$(DRAKE_IA_LINE_SIZE)
-CFLAGS_PRIVATE = -isystem ../include 
+CFLAGS_BASE = 
+CFLAGS_PRIVATE = -isystem ../include -DDRAKE_IA_L2_SIZE=$(DRAKE_IA_L2_SIZE) -DDRAKE_IA_LINE_SIZE=$(DRAKE_IA_LINE_SIZE)
 CFLAGS_CONFIG_RELEASE = -O3 -DNDEBUG
 CFLAGS_CONFIG_DEBUG = -g -O0 -DDEBUG=1 $(asan_cflags)
 CC_LDFLAGS_PRIVATE = -L.
