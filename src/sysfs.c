@@ -238,7 +238,7 @@ sysfs_attr_write(sysfs_attr_tp attr, size_t value)
 	int err = write(attr->fd, attr->data[value], attr->length[value]);
 	if(err < 1)
 	{
-		fprintf(stderr, "[%s:%d] Error while writing value to device\n", __FILE__, __LINE__);
+		fprintf(stderr, "[%s:%d] Error while writing value to device \"%s\"\n", __FILE__, __LINE__, attr->device);
 	}
 	lseek(attr->fd, 0, SEEK_SET);
 }
@@ -251,7 +251,7 @@ sysfs_attr_write_str(sysfs_attr_tp attr, char* str)
 	int err = write(attr->fd, str, strlen(str));
 	if(err < 1)
 	{
-		fprintf(stderr, "[%s:%d] Error while writing value to device\n", __FILE__, __LINE__);
+		fprintf(stderr, "[%s:%d] Error while writing value to device \"%s\"\n", __FILE__, __LINE__, attr->device);
 	}
 	lseek(attr->fd, 0, SEEK_SET);
 }

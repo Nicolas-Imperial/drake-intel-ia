@@ -1,0 +1,27 @@
+#!/bin/bash
+
+log_file=/var/log/drake.log
+
+log()
+{
+	/bin/echo $@ >> $log_file
+	logger $@
+}
+
+run()
+{
+	log $@
+	$@ >> $log_file
+}
+
+kernel="$1"
+list='/sys/devices/system/cpu/cpu*/cpufreq/{scaling_governor,scaling_max_freq,scaling_min_freq,scaling_setspeed} 
+	/sys/devices/system/cpu/cpu*/online 
+	/sys/devices/system/cpu/cpu*/cpuidle/state*/disable
+	/sys/devices/system/cpu/cpufreq/policy*/cpuinfo_cur_freq'
+
+# Now apply new rights on devices
+list="$(eval ls $list)"
+
+run /bin/chgrp drake $list
+run /bin/chmod 660 $list

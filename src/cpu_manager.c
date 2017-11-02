@@ -67,8 +67,10 @@ cpu_manager_init(int poll_at_idle)
 		{
 			char *sysfs_online_device = malloc(sizeof(char) * (strlen(SYSFS_ONLINE_DEVICE_PATTERN) - 3 + (i == 0 ? 1 : floor(log10(i)) + 1) + 1));
 			sprintf(sysfs_online_device, SYSFS_ONLINE_DEVICE_PATTERN, i);
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
 			manager.hotplug[i] = sysfs_attr_open_rw(sysfs_online_device, zeroone_str, 2);
 			sysfs_attr_write(manager.hotplug[i], ONE);
+#endif
 			free(sysfs_online_device);
 		}
 	}
@@ -223,7 +225,7 @@ cpu_manager_init(int poll_at_idle)
 		sysfs_attr_write_buffer(manager.scaling[i], manager.freq[i][0], 8);
 #elif FREQ_DEFAULT_MIN
 		sysfs_attr_write_buffer(manager.scaling[i], manager.freq[i][manager.nb_freq[i] - 1], 8);
-#else
+#elif FREQ_DEFAULT
 #define MAKE_STRING_2(expr) #expr
 #define MAKE_STRING(expr) MAKE ## _ ## STRING ## _ ## 2(expr)
 		sysfs_attr_write_str(manager.scaling[i], MAKE_STRING(FREQ_DEFAULT));
@@ -283,7 +285,7 @@ cpu_manager_init(int poll_at_idle)
 				int found = sscanf(dir->d_name, "state%u", &state);
 				if(found > 0 && state > 0)
 				{
-					manager.cstate[i].state = realloc(manager.cstate[i].state, manager.cstate[i].nb_states + 1);
+					manager.cstate[i].state = realloc(manager.cstate[i].state, sizeof(int) * manager.cstate[i].nb_states + 1);
 					if(manager.cstate[i].state == NULL)
 					{
 						perror("Error while reallocating cstate array");
@@ -362,6 +364,12 @@ cpu_manager_destroy(cpu_manager_t manager)
 	//sysfs_attr_write(cpuidle_governor, CPUIDLE_LADDER);
 	//sysfs_attr_close(cpuidle_governor);
 
+	for(i = 0; i < manager.online.size; i++)
+	{
+		msr_turbo_boost_enable(manager.turbo_boost[i]);
+	}
+
+#if MANAGE_CPU && DISABLE_UNUSED_CORES
 	// Switch on all cores
 	for(i = 0; i < manager.present.size; i++)
 	{
@@ -371,12 +379,15 @@ cpu_manager_destroy(cpu_manager_t manager)
 			sysfs_attr_close(manager.hotplug[i]);
 		}
 	}
+#endif
 
 	for(i = 0; i < manager.online.size; i++)
 	{
 		sysfs_attr_close(manager.scaling[i]);
 
+#if SCALE_FREQUENCY || FREQ_DEFAULT_MIN || FREQ_DEFAULT_MIN || FREQ_DEFAULT
 		sysfs_attr_write(manager.cpufreq_governor[i], CPUFREQ_ONDEMAND);
+#endif
 		sysfs_attr_close(manager.cpufreq_governor[i]);
 		msr_attr_close(manager.turbo_boost[i]);
 

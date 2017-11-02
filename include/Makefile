@@ -52,7 +52,10 @@ do-install:
 
 post-install:
 	
-uninstall: submake-uninstall
+uninstall: pre-uninstall do-uninstall submake-uninstall post-uninstall
+pre-uninstall:
+post-uninstall:
+do-uninstall:
 	$(RM) $(foreach var,$(attach), $(DESTDIR)$(prefix)/$(subdir)/$(var))
 	
 check: submake-check

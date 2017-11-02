@@ -26,11 +26,55 @@ CONFIG = RELEASE
 PREFIX_RELEASE = $(HOME)/.local
 PREFIX_DEBUG = $(HOME)/.local/debug
 
+MANAGE_CPU=1
+SCALE_FREQUENCY=1
+FREQ_DEFAULT_MAX=0
+FREQ_DEFAULT_MIN=0
+FREQ_DEFAULT=0
+DISABLE_UNUSED_CORES=1
+MONITOR_POWER=1
+MANAGE_TURBO_BOOST=1
+
+UDEV_RULES=99-drake.rules
+
 subdirs = src include
 
 doc:
 	mkdir -p doc
 	./make-doc
+
+post-install: dist
+	mkdir -p $(DESTDIR)$(prefix)/share/$(package)
+	install -m 644 $(package)-$(version).$(minor).$(release).tar.gz $(DESTDIR)$(prefix)/share/$(package)
+	install -m 755 drake_permissions $(DESTDIR)$(prefix)/share/$(package)
+ifeq ($(shell id -u)$(MANAGE_CPU),01)
+	@# Install udev rules to make power monitoring accessible to drake users
+	install -m 644 20-msr.rules /etc/udev/rules.d
+	@# Install udev rules to enable read-write access to power management to drake users
+	cat drake.service | sed 's#$$destdir#$(DESTDIR)$(prefix)/share/$(package)#g' > /etc/systemd/system/drake.service
+	chmod 664 /etc/systemd/system/drake.service
+	@# Reload and apply udevadm rules
+	systemctl daemon-reload
+	systemctl enable drake.service
+	systemctl start drake.service
+	@# Install grub options to disable intel frequency scaling driver
+	mkdir -p /etc/default/grub.d
+	install -m 644 grub.cfg /etc/default/grub.d/drake.cfg
+	@# And update grub
+	update-grub
+	grub-install
+endif
+
+post-uninstall:
+	-rm -rf $(DESTDIR)$(prefix)/share/$(package)
+ifeq ($(shell id -u),0)
+	-systemctl disable drake.service
+	-rm /etc/udev/rules.d/20-msr.rules
+	-rm /etc/systemd/system/drake.service
+	-rm /etc/default/grub.d/drake.cfg
+	update-grub
+	grub-install
+endif
 
 .PHONY: doc
 
@@ -38,4 +82,4 @@ doc:
 ## Can be a custom target
 ## To target by default
 FIRST=
-attach = COPYING.txt
+attach = COPYING.txt $(UDEV_RULES) drake_permissions grub.cfg

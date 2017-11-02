@@ -48,15 +48,15 @@
 #undef debug_size_t
 #endif
 
-#define error(var) printf("[%s:%s:%d:CORE %zu] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL); abort()
+#define error(var) printf("[%s:%s:%d:CORE %u] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL); abort()
 
 #if 1
-#define debug(var) printf("[%s:%s:%d:CORE %zu] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_addr(var) printf("[%s:%s:%d:CORE %zu] %s = \"%p\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_int(var) printf("[%s:%s:%d:CORE %zu] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_uint(var) printf("[%s:%s:%d:CORE %zu] %s = \"%u\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_double(var) printf("[%s:%s:%d:CORE %zu] %s = \"%lf\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
-#define debug_size_t(var) printf("[%s:%s:%d:CORE %zu] %s = \"%zu\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug(var) printf("[%s:%s:%d:CORE %u] %s = \"%s\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_addr(var) printf("[%s:%s:%d:CORE %u] %s = \"%p\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_int(var) printf("[%s:%s:%d:CORE %u] %s = \"%d\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_uint(var) printf("[%s:%s:%d:CORE %u] %s = \"%u\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_double(var) printf("[%s:%s:%d:CORE %u] %s = \"%lf\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
+#define debug_size_t(var) printf("[%s:%s:%d:CORE %u] %s = \"%zu\"\n", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #var, var); fflush(NULL)
 #else
 #define debug(var)
 #define debug_addr(var)
@@ -70,7 +70,8 @@
 
 enum phase { DRAKE_IA_CREATE, DRAKE_IA_INIT, DRAKE_IA_RUN, DRAKE_IA_DESTROY };
 
-struct drake_time {
+struct drake_time
+{
 	double time;
 };
 typedef struct drake_time *drake_time_t;
@@ -80,12 +81,17 @@ typedef struct {
 	drake_platform_t handler;
 } drake_thread_init_t;
 
+struct drake_local_barrier
+{
+	pthread_barrier_t barrier;
+};
+
 struct drake_platform
 {
 	pthread_t *pthread;
 	drake_stream_t *stream;
 	pthread_barrier_t work_notify;
-	sem_t ready, report_ready;
+	sem_t ready; //, report_ready;
 	size_t core_size;
 	int *success;
 	enum phase phase;
@@ -104,7 +110,7 @@ struct drake_platform
 typedef struct drake_platform *drake_platform_t;
 
 static size_t core_size;
-static __thread size_t core_id = 0;
+static __thread unsigned int core_id = 0;
 void **distributed_buffer, **private_buffer, **shared_buffer;
 pelib_malloc_queue_t **distributed, **private, **shared;
 pthread_barrier_t barrier;
@@ -183,11 +189,12 @@ drake_ia_thread(void* args)
 	// Wait for all cores to have their shared memory buffer allocated
 	pthread_barrier_wait(&handler->work_notify);
 	// Notify master thread that all threads are ready
-	if(sem_trywait(&handler->report_ready) == 0)
+	//if(sem_trywait(&handler->report_ready) == 0)
+	if(core_id == 0)
 	{
 		sem_post(&handler->ready);
 		pthread_barrier_wait(&handler->work_notify);
-		sem_post(&handler->report_ready);
+		//sem_post(&handler->report_ready);
 	}
 	else
 	{
@@ -210,11 +217,12 @@ drake_ia_thread(void* args)
 	while(!done)
 	{
 		// Wait for someone to tell to do something
-		if(sem_trywait(&handler->report_ready) == 0)
+		//if(sem_trywait(&handler->report_ready) == 0)
+		if(core_id == 0)
 		{
 			sem_wait(&handler->new_order);
 			pthread_barrier_wait(&handler->work_notify);
-			sem_post(&handler->report_ready);
+			//sem_post(&handler->report_ready);
 		}
 		else
 		{
@@ -252,14 +260,15 @@ drake_ia_thread(void* args)
 		pthread_barrier_wait(&handler->work_notify);
 
 		// One lucky thread will have to tell the master thread everyone is done
-		if(sem_trywait(&handler->report_ready) == 0)
+		if(core_id == 0)
+		//if(sem_trywait(&handler->report_ready) == 0)
 		{
 			// Tell other threads they can already wait for new orders
 			pthread_barrier_wait(&handler->work_notify);
 			// Tell master thread everyone is done
 			sem_post(&handler->ready);
 			// Let another thread to notify master thread next time
-			sem_post(&handler->report_ready);
+			//sem_post(&handler->report_ready);
 		}
 		else
 		{
@@ -275,30 +284,6 @@ drake_ia_thread(void* args)
 
 	// Terminate
 	return NULL;
-}
-
-static
-void*
-run_stream(void *arg)
-{
-	drake_stream_t *str = (drake_stream_t*)arg;
-	size_t status = (size_t)drake_stream_run(str);
-	pthread_exit((void*)status);
-	return (void*)status;
-}
-
-void
-drake_platform_stream_run_async(drake_platform_t pt)
-{
-	pthread_create(&pt->run_async, NULL, run_stream, pt->stream);
-}
-
-int
-drake_platform_stream_wait(drake_platform_t pt)
-{
-	size_t run_status;
-	pthread_join(pt->run_async, (void**)&run_status);
-	return run_status;
 }
 
 void
@@ -372,7 +357,7 @@ drake_platform_core_enable(drake_platform_t pt, size_t core)
 #endif
 }
 
-#define hexdump(obj) { char *ptr = (char*)&obj; size_t i; printf("[%s:%s:%d:CORE %zu] %s : ", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #obj); for(i = 0; i < sizeof(obj); i++) { printf("%02X ", ptr[i]); } printf("\n"); } fflush(NULL)
+#define hexdump(obj) { char *ptr = (char*)&obj; size_t i; printf("[%s:%s:%d:CORE %u] %s : ", __FILE__, __FUNCTION__, __LINE__, drake_platform_core_id(), #obj); for(i = 0; i < sizeof(obj); i++) { printf("%02X ", ptr[i]); } printf("\n"); } fflush(NULL)
 
 drake_platform_t
 drake_platform_init(void* obj)
@@ -419,7 +404,7 @@ drake_platform_init(void* obj)
 	pthread_barrier_init(&stream->work_notify, NULL, core_size);
 	pthread_barrier_init(&barrier, NULL, core_size);
 	pthread_mutex_init(&exclusive, NULL);
-	sem_init(&stream->report_ready, 0, 1);
+	//sem_init(&stream->report_ready, 0, 1);
 	sem_init(&stream->ready, 0, 0);
 	sem_init(&stream->new_order, 0, 0);
 
@@ -503,6 +488,30 @@ drake_platform_stream_run(drake_platform_t stream)
 	return success;	
 }
 
+static
+void*
+run_stream(void *arg)
+{
+	drake_platform_t pt = (drake_platform_t)arg;
+	size_t status = drake_platform_stream_run(pt);
+	pthread_exit((void*)status);
+	return (void*)status;
+}
+
+void
+drake_platform_stream_run_async(drake_platform_t pt)
+{
+	pthread_create(&pt->run_async, NULL, run_stream, pt);
+}
+
+int
+drake_platform_stream_wait(drake_platform_t pt)
+{
+	size_t run_status;
+	pthread_join(pt->run_async, (void**)&run_status);
+	return run_status;
+}
+
 int
 drake_platform_stream_destroy(drake_platform_t stream)
 {
@@ -528,7 +537,7 @@ drake_platform_destroy(drake_platform_t stream)
 	pthread_mutex_destroy(&exclusive);
 	sem_destroy(&stream->new_order);
 	sem_destroy(&stream->ready);
-	sem_destroy(&stream->report_ready);
+	//sem_destroy(&stream->report_ready);
 	free(stream->pthread);
 	free(stream->stream);
 	free(stream->success); 
@@ -606,7 +615,7 @@ drake_platform_aligned_alloc(size_t alignment, size_t size, unsigned int core, d
 		{
 			pelib_malloc_queue_t *space = &shared[core_id][core];
 			void *addr = pelib_mem_malloc(space, size, alignment);
-			return shared_buffer[core] + (addr - shared_buffer[core_id]);
+			return addr;
 		}
 		break;
 		case DRAKE_MEMORY_SHARED | DRAKE_MEMORY_LARGE_COSTLY:
@@ -673,6 +682,35 @@ drake_platform_store_free(void *addr)
 }
 */
 
+/** Allocates a barrier across cores sharing memory **/
+drake_local_barrier_t
+drake_platform_local_barrier_alloc(unsigned int length, unsigned int core, drake_memory_t features, unsigned int level)
+{
+	drake_local_barrier_t barrier = drake_platform_malloc(sizeof(struct drake_local_barrier), core, features, level);
+	if(core_id == core)
+	{
+		pthread_barrier_init(&barrier->barrier, NULL, length);
+	}
+	return barrier;
+}
+
+/** Wait at local barrier **/
+int
+drake_platform_local_barrier_wait(drake_local_barrier_t barrier)
+{
+	pthread_barrier_wait(&barrier->barrier);
+	return 1;
+}
+
+/** Destroy local barrier **/
+int
+drake_platform_local_barrier_destroy(drake_local_barrier_t barrier)
+{
+	pthread_barrier_destroy(&barrier->barrier);
+	drake_platform_free(barrier, drake_platform_core_id(), DRAKE_MEMORY_SHARED | DRAKE_MEMORY_SMALL_CHEAP, 0);
+	return 1;
+}
+
 int drake_platform_pull(volatile void* addr)
 {
 	// Do nothing and let hardware cache coherency do the work
@@ -691,7 +729,7 @@ int drake_platform_commit(volatile void* addr)
 	return 1;
 }
 
-size_t
+unsigned int
 drake_platform_core_id()
 {
 	return core_id;
@@ -850,7 +888,7 @@ drake_platform_set_frequency(int freq /* in KHz */)
 int
 drake_platform_set_frequency_autoscale(int frequency /* in KHz */)
 {
-	fprintf(stderr, "[%zu][ERROR] %s: not implemented.\n", drake_platform_core_id(), __FUNCTION__);
+	fprintf(stderr, "[%u][ERROR] %s: not implemented.\n", drake_platform_core_id(), __FUNCTION__);
 	return 0;
 }
 

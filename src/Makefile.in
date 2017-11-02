@@ -23,15 +23,6 @@
 ## Package configuration
 CONFIG = RELEASE
 
-MANAGE_CPU=1
-SCALE_FREQUENCY=1
-FREQ_DEFAULT_MAX=0
-FREQ_DEFAULT_MIN=0
-FREQ_DEFAULT=0
-DISABLE_UNUSED_CORES=1
-MONITOR_POWER=1
-MANAGE_TURBO_BOOST=1
-
 #asan_cflags=-fsanitize=address
 #asan_libs=-lasan
 asan_cflags=

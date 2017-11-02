@@ -42,7 +42,7 @@ msr_attr_close(msr_attr_tp attr)
 	//printf("[%s:%s:%d] %016lX\n", __FILE__, __FUNCTION__, __LINE__, attr->state_boost);
 	if(pwrite(attr->fd, &attr->state_boost, sizeof(uint64_t), MSR_DISABLE_BOOST_OFFSET) != sizeof(uint64_t))
 	{
-		perror("Cannot restore od msr value");
+		perror("Cannot restore old msr value");
 	}
 	close(attr->fd);
 	free(attr);
@@ -71,7 +71,7 @@ int msr_turbo_boost_enable(msr_attr_tp attr)
 	//printf("[%s:%s:%d] %016lX\n", __FILE__, __FUNCTION__, __LINE__, data);
 	if(pwrite(attr->fd, &data, sizeof(uint64_t), MSR_DISABLE_BOOST_OFFSET) != sizeof(uint64_t))
 	{
-		perror("Error while disabling intel boost");
+		perror("Error while enabling intel boost");
 		return -1;
 	}
 #endif

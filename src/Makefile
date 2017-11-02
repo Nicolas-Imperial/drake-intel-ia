@@ -445,7 +445,10 @@ do-install: $(lib_pkgconfig) $(lib_list) $(bin_list) $(shared_list) $(shared_lin
 
 post-install:
 
-uninstall: submake-uninstall
+uninstall: pre-uninstall do-uninstall submake-uninstall post-uninstall
+pre-uninstall:
+post-uninstall:
+do-uninstall:
 	$(RM) $(foreach var,$(bin_list), $(DESTDIR)$(final_bindir)/$(call VARIANT_$(var))$(var))
 	$(RM) $(foreach var,$(lib_list), $(DESTDIR)$(final_libdir)/lib$(call VARIANT_lib$(patsubst lib%.a,%,$(var)).a)$(patsubst lib%.a,%,$(var)).a)
 	$(RM) $(foreach var,$(shared_list), $(DESTDIR)$(final_libdir)/$(var))

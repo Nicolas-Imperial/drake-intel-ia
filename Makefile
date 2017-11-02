@@ -50,7 +50,7 @@ all check install uninstall: version
 all: submake-all
 check: submake-check
 install: pre-install do-install submake-install post-install
-uninstall: submake-uninstall
+uninstall: pre-uninstall do-uninstall submake-uninstall post-uninstall
 
 $(abspath $(distdir)).tar.gz: $(abspath $(distdir))
 	tar -ch -C $(abspath $(distdir)) -O .| gzip -9 -c > $(abspath $(distdir)).tar.gz
@@ -75,6 +75,7 @@ clean-dist:
 	$(RM) $(abspath $(distdir)).tar.gz
 
 do-install:
+do-uninstall:
 
 dist: pre-dist do-dist post-dist
 do-dist: $(abspath $(distdir)).tar.gz
@@ -96,4 +97,4 @@ submake-all submake-dist submake-check submake-install submake-uninstall submake
 
 FORCE:
 .PHONY: FORCE all version clean dist distcheck copy clean-dist clean-tree
-.PHONY: install uninstall submake-all submake-dist submake-check submake-install submake-uninstall submake-clean $(abspath $(distdir)) $(abspath $(distdir))-reset pre-install do-install install post-install pre-dist do-dist post-dist 
+.PHONY: install pre-uninstall do-uninstall uninstall post-uninstall submake-all submake-dist submake-check submake-install submake-uninstall submake-clean $(abspath $(distdir)) $(abspath $(distdir))-reset pre-install do-install install post-install pre-dist do-dist post-dist 
