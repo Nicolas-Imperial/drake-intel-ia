@@ -111,8 +111,10 @@ typedef struct drake_platform *drake_platform_t;
 
 static size_t core_size;
 static __thread unsigned int core_id = 0;
-void **distributed_buffer, **private_buffer, **shared_buffer;
-pelib_malloc_queue_t **distributed, **private, **shared;
+//void **distributed_buffer, **private_buffer, **shared_buffer;
+void ***private_buffer, ***shared_buffer, **distributed_buffer;
+//pelib_malloc_queue_t **distributed, **private, **shared;
+pelib_malloc_queue_t ***private, ***shared;
 pthread_barrier_t barrier;
 pthread_mutex_t exclusive;
 drake_application_t *application;
@@ -161,19 +163,31 @@ drake_ia_thread(void* args)
 	drake_thread_init_t *init = (drake_thread_init_t*)args;
 	core_id = init->id;
 	drake_platform_t handler = init->handler;
-	if(posix_memalign(&distributed_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_L2_SIZE) != 0)
+	/*
+	if(posix_memalign(&distributed_buffer[core_id], DRAKE_IA_LINE_SIZE, 0) != 0)
 	{
 		fprintf(stderr, "[%s:%d] Could not allocate distributed memory. Aborting.\n", __FILE__, __LINE__);
 		abort();
 	}
+	*/
 
-	if(posix_memalign(&private_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_L2_SIZE) != 0)
+	if(posix_memalign(&private_buffer[core_id][0], DRAKE_IA_LINE_SIZE, DRAKE_IA_L1_SIZE) != 0)
+	{
+		fprintf(stderr, "[%s:%d] Could not allocate private memory. Aborting.\n", __FILE__, __LINE__);
+		abort();
+	}
+	if(posix_memalign(&private_buffer[core_id][1], DRAKE_IA_LINE_SIZE, DRAKE_IA_L2_SIZE) != 0)
 	{
 		fprintf(stderr, "[%s:%d] Could not allocate private memory. Aborting.\n", __FILE__, __LINE__);
 		abort();
 	}
 	
-	if(posix_memalign(&shared_buffer[core_id], DRAKE_IA_LINE_SIZE, DRAKE_IA_L2_SIZE) != 0)
+	if(posix_memalign(&shared_buffer[core_id][0], DRAKE_IA_LINE_SIZE, DRAKE_IA_L3_SIZE) != 0)
+	{
+		fprintf(stderr, "[%s:%d] Could not allocate shared memory. Aborting.\n", __FILE__, __LINE__);
+		abort();
+	}
+	if(posix_memalign(&shared_buffer[core_id][1], DRAKE_IA_LINE_SIZE, DRAKE_IA_DRAM_SIZE) != 0)
 	{
 		fprintf(stderr, "[%s:%d] Could not allocate shared memory. Aborting.\n", __FILE__, __LINE__);
 		abort();
@@ -202,14 +216,18 @@ drake_ia_thread(void* args)
 	}
 	
 	// Initialize memory allocator pointers for all cores
-	distributed[core_id] = malloc(DRAKE_IA_L2_SIZE);
-	private[core_id] = malloc(DRAKE_IA_L2_SIZE);
-	shared[core_id] = malloc(DRAKE_IA_L2_SIZE);
+	//distributed[core_id] = malloc(DRAKE_IA_L2_SIZE);
+	private[core_id][0] = malloc(DRAKE_IA_L1_SIZE);
+	private[core_id][1] = malloc(DRAKE_IA_L2_SIZE);
+	shared[core_id][0] = malloc(DRAKE_IA_L3_SIZE);
+	shared[core_id][1] = malloc(DRAKE_IA_DRAM_SIZE);
 	for(i = 0; i < core_size; i++)
 	{
-		pelib_mem_malloc_init(&distributed[core_id][i], distributed_buffer[i], DRAKE_IA_L2_SIZE);
-		pelib_mem_malloc_init(&private[core_id][i], private_buffer[i], DRAKE_IA_L2_SIZE);
-		pelib_mem_malloc_init(&shared[core_id][i], shared_buffer[i], DRAKE_IA_L2_SIZE);
+		//pelib_mem_malloc_init(&distributed[core_id][i], distributed_buffer[i], DRAKE_IA_L2_SIZE);
+		pelib_mem_malloc_init(&private[core_id][i][0], private_buffer[i][0], DRAKE_IA_L1_SIZE);
+		pelib_mem_malloc_init(&private[core_id][i][1], private_buffer[i][1], DRAKE_IA_L2_SIZE);
+		pelib_mem_malloc_init(&shared[core_id][i][0], shared_buffer[i][0], DRAKE_IA_L3_SIZE);
+		pelib_mem_malloc_init(&shared[core_id][i][1], shared_buffer[i][1], DRAKE_IA_DRAM_SIZE);
 	}
 
 	// Wait for something to do
@@ -278,9 +296,11 @@ drake_ia_thread(void* args)
 	}
 
 	// Do some cleanup
-	free(distributed_buffer[core_id]);
-	free(private_buffer[core_id]);
-	free(shared_buffer[core_id]);
+	//free(distributed_buffer[core_id]);
+	free(private_buffer[core_id][0]);
+	free(private_buffer[core_id][1]);
+	free(shared_buffer[core_id][0]);
+	free(shared_buffer[core_id][1]);
 
 	// Terminate
 	return NULL;
@@ -391,12 +411,12 @@ drake_platform_init(void* obj)
 #endif
 	drake_thread_init_t *init = malloc(sizeof(drake_thread_init_t) * core_size);
 
-	distributed_buffer = malloc(sizeof(void*) * core_size);
-	distributed = malloc(sizeof(pelib_malloc_queue_t) * core_size);
-	private_buffer = malloc(sizeof(void*) * core_size);
-	private = malloc(sizeof(pelib_malloc_queue_t) * core_size);
-	shared_buffer = malloc(sizeof(void*) * core_size);
-	shared = malloc(sizeof(pelib_malloc_queue_t) * core_size);
+	//distributed_buffer = malloc(sizeof(void*) * core_size);
+	//distributed = malloc(sizeof(pelib_malloc_queue_t) * core_size);
+	private_buffer = malloc(sizeof(void*) * core_size * DRAKE_PRIVATE_LEVELS);
+	private = malloc(sizeof(pelib_malloc_queue_t) * core_size * DRAKE_PRIVATE_LEVELS);
+	shared_buffer = malloc(sizeof(void*) * core_size * DRAKE_SHARED_LEVELS);
+	shared = malloc(sizeof(pelib_malloc_queue_t) * core_size * DRAKE_SHARED_LEVELS);
 	application = malloc(sizeof(drake_application_t) * core_size);
 	stream->pthread =malloc(sizeof(pthread_t) * core_size);
 	stream->stream = malloc(sizeof(drake_stream_t) * core_size);
@@ -413,11 +433,11 @@ drake_platform_init(void* obj)
 	{
 		init[i].handler = stream;
 		init[i].id = i;
-		pthread_create(&stream->pthread[i], NULL, drake_ia_thread, (void*)&init[i]);
+		//pthread_create(&stream->pthread[i], NULL, drake_ia_thread, (void*)&init[i]);
 	}
 
 	// Wait for all threads to be created
-	sem_wait(&stream->ready);
+	//sem_wait(&stream->ready);
 
 	return stream;
 }
@@ -469,6 +489,12 @@ drake_application_t*
 drake_platform_get_application_details()
 {
 	return &application[drake_platform_core_id()];
+}
+
+struct drake_application*
+drake_platform_get_application(drake_platform_t pt)
+{
+	return pt->get_application();
 }
 
 int
@@ -568,13 +594,13 @@ volatile void* drake_platform_shared_malloc_mailbox(size_t size, size_t core)
 void*
 drake_platform_malloc(size_t size, unsigned int core, drake_memory_t type, unsigned int level)
 {
-	return drake_platform_aligned_alloc(0, size, core, type, level);
+	return drake_platform_aligned_alloc(1, size, core, type, level);
 }
 
 void*
 drake_platform_calloc(size_t nmemb, size_t size, unsigned int core, drake_memory_t type, unsigned int level)
 {
-	void *addr = drake_platform_aligned_alloc(0, nmemb * size, core, type, level);
+	void *addr = drake_platform_aligned_alloc(1, nmemb * size, core, type, level);
 	if(addr != NULL)
 	{
 		memset(addr, 0, nmemb * size);
@@ -587,11 +613,43 @@ drake_platform_aligned_alloc(size_t alignment, size_t size, unsigned int core, d
 {
 	switch(type)
 	{
-		case (DRAKE_MEMORY_PRIVATE | DRAKE_MEMORY_SMALL_CHEAP):
+		case (DRAKE_MEMORY_PRIVATE):
 		{
 			if(drake_platform_core_id() == core)
 			{
-				return pelib_mem_malloc(&private[core_id][core], size, alignment);
+				if(level < 2)
+				{
+					/*
+					debug("private");
+					debug_uint(core);
+					debug_uint(level);
+					debug_uint(type);
+					debug_size_t(size);
+					debug_size_t(private[core_id][core].tail->free_size);
+					*/
+					void* res = pelib_mem_malloc(&private[core_id][core][level], size, alignment);
+					/*
+					debug_size_t(res - private[core_id][core].mem);
+					debug_size_t(private[core_id][core].tail->free_size);
+					debug("----------");
+					*/
+					if(res == NULL && size != 0)
+					{
+						debug("Private memory allocation failed");
+						abort();
+					}
+					return res;
+				}
+				else
+				{
+					void *addr = malloc(size);
+					if(addr == NULL && size != 0)
+					{
+						debug("Private off-chip memory allocation failed");
+						abort();
+					}
+					return addr;
+				}
 			}
 			else
 			{
@@ -599,39 +657,40 @@ drake_platform_aligned_alloc(size_t alignment, size_t size, unsigned int core, d
 			}
 		}
 		break;
-		case (DRAKE_MEMORY_PRIVATE | DRAKE_MEMORY_LARGE_COSTLY):
+		case DRAKE_MEMORY_SHARED:
 		{
-			if(drake_platform_core_id() == core)
+			if(level < 2)
 			{
-				return malloc(size);
+				/*
+					debug("shared");
+					debug_uint(core);
+					debug_uint(level);
+					debug_uint(type);
+					debug_size_t(size);
+				debug_size_t(shared[core_id][core].tail->free_size);
+				*/
+				pelib_malloc_queue_t *space = &shared[core_id][core][level];
+				void *addr = pelib_mem_malloc(space, size, alignment);
+				/*
+				debug_size_t(addr - shared[core_id][core].mem);
+				debug_size_t(shared[core_id][core].tail->free_size);
+					debug("----------");
+				*/
+				if(addr == NULL && size != 0)
+				{
+					debug("Shared memory allocation failed");
+					abort();
+				}
+				return addr;
 			}
 			else
 			{
-				return NULL;
+				// Such allocation must guarantee that for 2 identical call sequences give the same address sequences
+				// malloc() cannot provide such a guarantee as it may be called privately in between for tasks' internal
+				// reasons.
+				debug("To be implemented");
+				abort();
 			}
-		}
-		break;
-		case DRAKE_MEMORY_SHARED | DRAKE_MEMORY_SMALL_CHEAP:
-		{
-			pelib_malloc_queue_t *space = &shared[core_id][core];
-			void *addr = pelib_mem_malloc(space, size, alignment);
-			return addr;
-		}
-		break;
-		case DRAKE_MEMORY_SHARED | DRAKE_MEMORY_LARGE_COSTLY:
-		{
-			// Such allocation must guarantee that for 2 identical call sequences give the same address sequences
-			// malloc() cannot provide such a guarantee as it may be called privately in between for tasks' internal
-			// reasons.
-			debug("To be implemented");
-			abort();
-		}
-		break;
-		case DRAKE_MEMORY_DISTRIBUTED | DRAKE_MEMORY_SMALL_CHEAP:
-		case DRAKE_MEMORY_DISTRIBUTED | DRAKE_MEMORY_LARGE_COSTLY:
-		{
-			debug("No distributed memory available in Intel IA platform");
-			abort();
 		}
 		break;
 		default:
@@ -782,44 +841,24 @@ size_t
 //drake_platform_shared_size()
 drake_platform_memory_size(unsigned int core, drake_memory_t type, unsigned int level)
 {
+	debug_int(type);
 	switch(type)
 	{
-		case (DRAKE_MEMORY_PRIVATE | DRAKE_MEMORY_SMALL_CHEAP):
+		case (DRAKE_MEMORY_PRIVATE):
 		{
 			return DRAKE_IA_L2_SIZE;
 		}
 		break;
-		case (DRAKE_MEMORY_PRIVATE | DRAKE_MEMORY_LARGE_COSTLY):
-		{
-			debug("Private large and costly");
-			debug("To be implemented");
-			abort();
-		}
-		break;
-		case DRAKE_MEMORY_SHARED | DRAKE_MEMORY_SMALL_CHEAP:
+		case DRAKE_MEMORY_SHARED:
 		{
 			debug("Shared small and cheap");
 			debug("To be implemented");
 			abort();
 		}
 		break;
-		case DRAKE_MEMORY_SHARED | DRAKE_MEMORY_LARGE_COSTLY:
-		{
-			debug("Shared large and costly");
-			debug("To be implemented");
-			abort();
-		}
-		break;
-		case DRAKE_MEMORY_DISTRIBUTED | DRAKE_MEMORY_SMALL_CHEAP:
+		case DRAKE_MEMORY_DISTRIBUTED:
 		{
 			return DRAKE_IA_L2_SIZE;
-		}
-		break;
-		case DRAKE_MEMORY_DISTRIBUTED | DRAKE_MEMORY_LARGE_COSTLY:
-		{
-			debug("Distributed large and costly");
-			debug("To be implemented");
-			abort();
 		}
 		break;
 	}
