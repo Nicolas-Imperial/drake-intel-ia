@@ -1,0 +1,8 @@
+[Unit]
+Description=Drake Power Management
+
+[Service]
+ExecStart=$destdir/drake_permissions
+
+[Install]
+WantedBy=default.target
